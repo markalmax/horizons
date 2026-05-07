@@ -16,6 +16,7 @@ import { AirtableService } from '../airtable/airtable.service';
 import { FraudReviewService } from '../fraud-review/fraud-review.service';
 import { ManifestService } from '../manifest/manifest.service';
 import { StreakService } from '../streaks/streak.service';
+import { HackatimeService } from '../hackatime/hackatime.service';
 import { AUDIT_ACTIONS } from '../submission-approval/audit-actions';
 
 @Injectable()
@@ -28,6 +29,7 @@ export class ProjectsService {
     private fraudReviewService: FraudReviewService,
     private manifestService: ManifestService,
     private streakService: StreakService,
+    private hackatimeService: HackatimeService,
   ) {}
 
   private excludeAdminFields<T extends Record<string, any>>(
@@ -331,22 +333,9 @@ export class ProjectsService {
       );
     }
 
-    const hackatimeBaseUrl =
-      process.env.HACKATIME_ADMIN_API_URL ||
-      'https://hackatime.hackclub.com/api/admin/v1';
-    const hackatimeApiKey = process.env.HACKATIME_API_KEY;
-    const { projectsMap } = await this.fetchHackatimeProjectsData(
-      user.hackatimeAccount,
-      hackatimeBaseUrl,
-      hackatimeApiKey,
-    );
-    const recalculatedHours = await this.calculateHackatimeHours(
+    const recalculatedHours = await this.hackatimeService.calculateProjectHours(
+      user,
       project.nowHackatimeProjects,
-      projectsMap,
-      user.hackatimeAccount,
-      hackatimeBaseUrl,
-      hackatimeApiKey,
-      user.hackatimeStartDate,
     );
 
     // Inspect the most recent prior submission to gate eligibility and decide
@@ -674,12 +663,11 @@ export class ProjectsService {
       process.env.HACKATIME_ADMIN_API_URL ||
       'https://hackatime.hackclub.com/api/admin/v1';
     const hackatimeApiKey = process.env.HACKATIME_API_KEY;
-    const { availableProjectNames, projectsMap } =
-      await this.fetchHackatimeProjectsData(
-        project.user.hackatimeAccount,
-        hackatimeBaseUrl,
-        hackatimeApiKey,
-      );
+    const { availableProjectNames } = await this.fetchHackatimeProjectsData(
+      project.user.hackatimeAccount,
+      hackatimeBaseUrl,
+      hackatimeApiKey,
+    );
 
     for (const projectName of updateHackatimeProjectsDto.projectNames) {
       if (!availableProjectNames.has(projectName)) {
@@ -689,13 +677,9 @@ export class ProjectsService {
       }
     }
 
-    const totalHours = await this.calculateHackatimeHours(
+    const totalHours = await this.hackatimeService.calculateProjectHours(
+      project.user,
       updateHackatimeProjectsDto.projectNames,
-      projectsMap,
-      project.user.hackatimeAccount,
-      hackatimeBaseUrl,
-      hackatimeApiKey,
-      project.user.hackatimeStartDate,
     );
 
     const allLinkedProjects = await this.prisma.project.findMany({
@@ -947,43 +931,6 @@ export class ProjectsService {
     }
 
     return durationsMap;
-  }
-
-  private async calculateHackatimeHours(
-    projectNames: string[],
-    projectsMap: Map<string, number>,
-    hackatimeAccount?: string,
-    baseUrl?: string,
-    apiKey?: string,
-    userStartDate?: Date | null,
-  ) {
-    if (hackatimeAccount && baseUrl) {
-      const cutoffDate =
-        userStartDate ??
-        new Date(process.env.HACKATIME_CUTOFF_DATE || '2025-10-10T00:00:00Z');
-      const filteredDurations =
-        await this.fetchHackatimeProjectDurationsAfterDate(
-          hackatimeAccount,
-          projectNames,
-          baseUrl,
-          apiKey,
-          cutoffDate,
-        );
-
-      let totalSeconds = 0;
-      for (const name of projectNames) {
-        totalSeconds += filteredDurations.get(name) || 0;
-      }
-
-      return Math.round((totalSeconds / 3600) * 10) / 10;
-    }
-
-    let totalSeconds = 0;
-    for (const name of projectNames) {
-      totalSeconds += projectsMap.get(name) || 0;
-    }
-
-    return Math.round((totalSeconds / 3600) * 10) / 10;
   }
 
   private calculateAge(birthday: Date) {
