@@ -190,6 +190,29 @@ export class SlackService {
     }
   }
 
+  /**
+   * Force-refresh the cached Slack display name for a user, bypassing the
+   * cache. Used on login so a user's current Slack profile name is reflected
+   * in admin/reviewer views without waiting for the cached entry to expire.
+   */
+  async refreshDisplayName(slackUserId: string): Promise<string | null> {
+    if (!slackUserId) return null;
+
+    const name = await this.fetchDisplayNameFromSlack(slackUserId);
+    if (!name) return null;
+
+    await this.prisma.user
+      .update({
+        where: { slackUserId },
+        data: { slackUsername: name },
+      })
+      .catch((err) => {
+        console.error('Failed to refresh Slack display name:', err);
+      });
+
+    return name;
+  }
+
   async getDisplayName(slackUserId: string): Promise<string | null> {
     if (!slackUserId) return null;
 

@@ -131,6 +131,15 @@ export class AuthService {
       );
   }
 
+  private syncSlackDisplayName(userId: number, slackUserId: string) {
+    this.slackService.refreshDisplayName(slackUserId).catch((err) =>
+      console.error(
+        `Failed to refresh Slack display name for user ${userId}:`,
+        err,
+      ),
+    );
+  }
+
   getAuthUrl(
     email?: string,
     referralCode?: string,
@@ -442,6 +451,7 @@ export class AuthService {
 
       if (slackUserId) {
         this.syncSlackTimezone(existingUser.userId, slackUserId);
+        this.syncSlackDisplayName(existingUser.userId, slackUserId);
       }
 
       return { user: existingUser, isNewUser: true };
@@ -516,6 +526,9 @@ export class AuthService {
       (updateData.slackUserId || !existingUser.timezone)
     ) {
       this.syncSlackTimezone(existingUser.userId, effectiveSlackUserId);
+    }
+    if (effectiveSlackUserId) {
+      this.syncSlackDisplayName(existingUser.userId, effectiveSlackUserId);
     }
 
     return { user: existingUser, isNewUser: false };
