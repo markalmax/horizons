@@ -8,6 +8,7 @@ import { ManifestModule } from '../manifest/manifest.module';
 import { MetricsModule } from '../metrics/metrics.module';
 import { FraudReviewModule } from '../fraud-review/fraud-review.module';
 import { StreakModule } from '../streaks/streak.module';
+import { HackatimeModule } from '../hackatime/hackatime.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { StreakModule } from '../streaks/streak.module';
     MetricsModule,
     FraudReviewModule,
     StreakModule,
+    HackatimeModule,
   ],
   controllers: [AdminController],
   providers: [AdminService, MetricsSnapshotService, PrismaService],

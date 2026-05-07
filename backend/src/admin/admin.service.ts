@@ -10,6 +10,7 @@ import { ManifestService } from '../manifest/manifest.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { FraudReviewService } from '../fraud-review/fraud-review.service';
 import { StreakService } from '../streaks/streak.service';
+import { HackatimeService } from '../hackatime/hackatime.service';
 import * as Papa from 'papaparse';
 
 const projectAdminInclude = {
@@ -27,6 +28,7 @@ const projectAdminInclude = {
       country: true,
       zipCode: true,
       hackatimeAccount: true,
+      hackatimeAccessToken: true,
       hackatimeStartDate: true,
       referralCode: true,
       referredByUserId: true,
@@ -50,6 +52,7 @@ export class AdminService {
     private metricsService: MetricsService,
     private fraudReviewService: FraudReviewService,
     private streakService: StreakService,
+    private hackatimeService: HackatimeService,
   ) {}
 
   async getAllSubmissions() {
@@ -310,18 +313,7 @@ export class AdminService {
       throw new NotFoundException('Project not found');
     }
 
-    const baseUrl =
-      process.env.HACKATIME_ADMIN_API_URL ||
-      'https://hackatime.hackclub.com/api/admin/v1';
-    const apiKey = process.env.HACKATIME_API_KEY;
-
-    const cache = new Map<string, Map<string, number>>();
-    const result = await this.recalculateProjectInternal(project, {
-      strict,
-      cache,
-      baseUrl,
-      apiKey,
-    });
+    const result = await this.recalculateProjectInternal(project, { strict });
 
     if (!result?.project) {
       throw new BadRequestException('Unable to recalculate project hours');
@@ -335,12 +327,6 @@ export class AdminService {
       include: projectAdminInclude,
     });
 
-    const cache = new Map<string, Map<string, number>>();
-    const baseUrl =
-      process.env.HACKATIME_ADMIN_API_URL ||
-      'https://hackatime.hackclub.com/api/admin/v1';
-    const apiKey = process.env.HACKATIME_API_KEY;
-
     const updated: Array<{ projectId: number; nowHackatimeHours: number }> = [];
     const skipped: Array<{ projectId: number; reason: string }> = [];
     const errors: Array<{ projectId: number; message: string }> = [];
@@ -349,9 +335,6 @@ export class AdminService {
       try {
         const result = await this.recalculateProjectInternal(project, {
           strict: false,
-          cache,
-          baseUrl,
-          apiKey,
         });
 
         if (result?.project) {
@@ -1325,20 +1308,12 @@ export class AdminService {
       include: projectAdminInclude,
     });
 
-    const baseUrl =
-      process.env.HACKATIME_ADMIN_API_URL ||
-      'https://hackatime.hackclub.com/api/admin/v1';
-    const apiKey = process.env.HACKATIME_API_KEY;
-    const cache = new Map<string, Map<string, number>>();
     let recalculatedProjects = 0;
 
     for (const project of projects) {
       try {
         const result = await this.recalculateProjectInternal(project, {
           strict: false,
-          cache,
-          baseUrl,
-          apiKey,
         });
         if (result?.project) recalculatedProjects++;
       } catch {
@@ -1379,17 +1354,13 @@ export class AdminService {
         lastName: string | null;
         email: string;
         hackatimeAccount: string | null;
+        hackatimeAccessToken: string | null;
         hackatimeStartDate?: Date | null;
       };
     },
-    options: {
-      strict: boolean;
-      cache: Map<string, Map<string, number>>;
-      baseUrl: string;
-      apiKey?: string;
-    },
+    options: { strict: boolean },
   ) {
-    const { strict, cache, baseUrl, apiKey } = options;
+    const { strict } = options;
 
     if (!project.user?.hackatimeAccount) {
       if (strict) {
@@ -1398,6 +1369,21 @@ export class AdminService {
       return {
         skipped: true as const,
         reason: 'missing_hackatime_account' as const,
+      };
+    }
+
+    if (!project.user.hackatimeAccessToken) {
+      // Legacy users from before OAuth was required have an account but no
+      // token; the dedup endpoint can't authorize without one. Skip with a
+      // clear reason rather than failing the whole sweep.
+      if (strict) {
+        throw new BadRequestException(
+          'User has no Hackatime access token; ask them to relink Hackatime',
+        );
+      }
+      return {
+        skipped: true as const,
+        reason: 'missing_hackatime_access_token' as const,
       };
     }
 
@@ -1413,26 +1399,9 @@ export class AdminService {
       return { project: updated };
     }
 
-    const cacheKey = project.user.hackatimeAccount;
-    let projectsMap = cache.get(cacheKey);
-
-    if (!projectsMap) {
-      const data = await this.fetchHackatimeProjectsData(
-        cacheKey,
-        baseUrl,
-        apiKey,
-      );
-      projectsMap = data.projectsMap;
-      cache.set(cacheKey, projectsMap);
-    }
-
-    const recalculatedHours = await this.calculateHackatimeHours(
+    const recalculatedHours = await this.hackatimeService.calculateProjectHours(
+      project.user,
       hackatimeProjects,
-      projectsMap,
-      project.user.hackatimeAccount,
-      baseUrl,
-      apiKey,
-      project.user.hackatimeStartDate,
     );
 
     const updatedProject = await this.prisma.project.update({
@@ -1554,43 +1523,6 @@ export class AdminService {
     }
 
     return durationsMap;
-  }
-
-  private async calculateHackatimeHours(
-    projectNames: string[],
-    projectsMap: Map<string, number>,
-    hackatimeAccount?: string,
-    baseUrl?: string,
-    apiKey?: string,
-    userStartDate?: Date | null,
-  ) {
-    if (hackatimeAccount && baseUrl) {
-      const cutoffDate =
-        userStartDate ??
-        new Date(process.env.HACKATIME_CUTOFF_DATE || '2025-10-10T00:00:00Z');
-      const filteredDurations =
-        await this.fetchHackatimeProjectDurationsAfterDate(
-          hackatimeAccount,
-          projectNames,
-          baseUrl,
-          apiKey,
-          cutoffDate,
-        );
-
-      let totalSeconds = 0;
-      for (const name of projectNames) {
-        totalSeconds += filteredDurations.get(name) || 0;
-      }
-
-      return Math.round((totalSeconds / 3600) * 10) / 10;
-    }
-
-    let totalSeconds = 0;
-    for (const name of projectNames) {
-      totalSeconds += projectsMap.get(name) || 0;
-    }
-
-    return Math.round((totalSeconds / 3600) * 10) / 10;
   }
 
   async getGlobalSettings() {
