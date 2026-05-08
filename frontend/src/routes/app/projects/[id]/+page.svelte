@@ -284,6 +284,14 @@
 								>
 									Read more
 								</button>
+								<a
+									href="https://hackclub.enterprise.slack.com/archives/C0AFLAUT58A"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="font-bricolage text-[12px] text-black/70 underline self-start mt-1"
+								>
+									Questions about your review? Ask in #horizons-help
+								</a>
 							</div>
 						{/if}
 
@@ -399,6 +407,16 @@
 					</button>
 				</div>
 				<p class="font-bricolage text-[16px] text-black m-0 whitespace-pre-wrap break-words flex-1 min-h-0 overflow-y-auto">{latestSubmission.hoursJustification}</p>
+				<div class="border-t-2 border-black/20 pt-3 mt-1">
+					<a
+						href="https://hackclub.enterprise.slack.com/archives/C0AFLAUT58A"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="font-bricolage text-[14px] font-semibold text-black underline"
+					>
+						Questions about your review? Ask in #horizons-help
+					</a>
+				</div>
 			</div>
 		</div>
 	{/if}
