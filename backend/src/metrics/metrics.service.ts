@@ -76,12 +76,12 @@ export class MetricsService {
               AND s2.created_at <= ${ceiling}
           )
       `,
-      // Rejected hours: latest submission is rejected and not a silent fraud reject
+      // Rejected hours: latest submission is rejected (includes silent fraud rejects
+      // so the buckets reconcile against shipped hours)
       this.prisma.$queryRaw<Array<{ total_hours: number }>>`
         SELECT COALESCE(SUM(s.hackatime_hours), 0) as total_hours
         FROM submissions s
         WHERE s.approval_status = 'rejected'
-          AND s.silent_reject = false
           AND s.created_at <= ${ceiling}
           AND s.created_at = (
             SELECT MAX(s2.created_at) FROM submissions s2
