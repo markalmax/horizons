@@ -3,10 +3,12 @@ import { PrismaService } from '../prisma.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const QUALIFY_SECONDS = 3600;
+const REFRESH_COOLDOWN_MS = 60 * 1000;
 
 @Injectable()
 export class StreakService {
   private readonly logger = new Logger(StreakService.name);
+  private readonly lastRefreshAt = new Map<number, number>();
 
   constructor(private prisma: PrismaService) {}
 
@@ -135,22 +137,115 @@ export class StreakService {
   }
 
   /**
-   * Read-time decay: if the stored streak is more than one day stale in the
-   * user's local timezone, return 0 without mutating the DB. The next
-   * qualifying day's recordDailyActivity will overwrite cleanly.
+   * Read-time decay. lastActiveDate is written in UTC-day buckets by the
+   * snapshot cron (which fires at UTC midnight), so the decay rule is also
+   * keyed on UTC days — comparing against local-tz "yesterday" would create
+   * a phase mismatch where positive-offset users see a brief 0d window
+   * every local morning before the cron catches up. The next qualifying
+   * day's recordDailyActivity will overwrite cleanly.
    */
   applyLazyDecay(user: {
     currentStreak: number;
     lastActiveDate: Date | null;
-    timezone: string | null;
   }): number {
     if (!user.currentStreak || !user.lastActiveDate) return user.currentStreak;
-    const tz = user.timezone ?? 'UTC';
-    const todayStr = this.formatLocalDate(new Date(), tz);
-    const today = new Date(`${todayStr}T00:00:00.000Z`);
-    const yesterday = today.getTime() - DAY_MS;
-    if (user.lastActiveDate.getTime() < yesterday) return 0;
+    const todayUtc = new Date();
+    todayUtc.setUTCHours(0, 0, 0, 0);
+    const yesterdayUtc = todayUtc.getTime() - DAY_MS;
+    if (user.lastActiveDate.getTime() < yesterdayUtc) return 0;
     return user.currentStreak;
+  }
+
+  /**
+   * Per-user on-demand refresh. Fetches today's UTC Hackatime activity for
+   * the caller, sums seconds on their linked Hackatime projects, and
+   * upserts a UserDailyActivity row so the streak reflects in-progress
+   * coding without waiting for the next daily cron. Rate-limited per user
+   * to keep load on the Hackatime API bounded; rate-limited calls return
+   * the cached streak unchanged.
+   */
+  async refreshUserActivity(
+    userId: number,
+  ): Promise<{ currentStreak: number; longestStreak: number; refreshed: boolean }> {
+    const now = Date.now();
+    const last = this.lastRefreshAt.get(userId) ?? 0;
+    const cooledDown = now - last >= REFRESH_COOLDOWN_MS;
+
+    if (cooledDown) {
+      this.lastRefreshAt.set(userId, now);
+      try {
+        await this.fetchAndRecordToday(userId);
+      } catch (err) {
+        this.logger.warn(
+          `Refresh failed for user ${userId}: ${err?.message ?? err}`,
+        );
+      }
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { userId },
+      select: { currentStreak: true, longestStreak: true, lastActiveDate: true },
+    });
+    return {
+      currentStreak: this.applyLazyDecay({
+        currentStreak: user?.currentStreak ?? 0,
+        lastActiveDate: user?.lastActiveDate ?? null,
+      }),
+      longestStreak: user?.longestStreak ?? 0,
+      refreshed: cooledDown,
+    };
+  }
+
+  private async fetchAndRecordToday(userId: number): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { userId },
+      select: {
+        hackatimeAccount: true,
+        timezone: true,
+        projects: {
+          where: { nowHackatimeProjects: { isEmpty: false } },
+          select: { nowHackatimeProjects: true },
+        },
+      },
+    });
+    if (!user?.hackatimeAccount) return;
+    const allowedNames = new Set(
+      user.projects.flatMap((p) => p.nowHackatimeProjects),
+    );
+    if (allowedNames.size === 0) return;
+
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const nextDay = new Date(dayStart);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const dateStr = dayStart.toISOString().split('T')[0];
+    const endDateStr = nextDay.toISOString().split('T')[0];
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const apiKey = process.env.HACKATIME_API_KEY;
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+    const url = `https://hackatime.hackclub.com/api/v1/users/${user.hackatimeAccount}/stats?features=projects&start_date=${dateStr}&end_date=${endDateStr}`;
+    const response = await fetch(url, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    const projects = data?.data?.projects;
+    let userSeconds = 0;
+    if (Array.isArray(projects)) {
+      for (const p of projects) {
+        if (p?.name && allowedNames.has(p.name)) {
+          userSeconds +=
+            typeof p?.total_seconds === 'number' ? p.total_seconds : 0;
+        }
+      }
+    }
+    const localDate = this.localDateForUtcDay(dayStart, user.timezone);
+    await this.recordDailyActivity(userId, localDate, userSeconds);
   }
 
   /**
@@ -174,7 +269,6 @@ export class StreakService {
         slackUsername: true,
         currentStreak: true,
         lastActiveDate: true,
-        timezone: true,
       },
       orderBy: [
         { currentStreak: 'desc' },
@@ -190,7 +284,6 @@ export class StreakService {
         currentStreak: this.applyLazyDecay({
           currentStreak: u.currentStreak,
           lastActiveDate: u.lastActiveDate,
-          timezone: u.timezone,
         }),
       }))
       .filter((u) => u.currentStreak > 0)

@@ -317,6 +317,11 @@
 	onMount(async () => {
 		await Promise.all([userStore.load(), fetchHours()]);
 
+		// Fire-and-forget streak refresh — hits Hackatime for today's UTC
+		// bucket so the badge reflects in-progress coding within ~1s of mount
+		// instead of waiting for the next midnight-UTC snapshot cron.
+		userStore.refreshStreak().catch(() => {});
+
 		// Refresh from API and update cache
 		const [pinnedRes, eventsRes] = await Promise.all([
 			api.GET('/api/events/auth/pinned-event' as any, {}).catch(() => null),
