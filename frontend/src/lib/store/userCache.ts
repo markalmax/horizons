@@ -52,4 +52,18 @@ export const userStore = {
 
 		await fetchPromise;
 	},
+	// Triggers a server-side refresh against Hackatime for today's UTC bucket,
+	// then patches the cached streak so the dashboard reflects in-progress
+	// coding without a full page reload. Rate-limited server-side; safe to
+	// fire-and-forget on every dashboard mount.
+	async refreshStreak() {
+		const res = await api.POST('/api/streaks/refresh', {});
+		if (res.data) {
+			store.update((s) => ({
+				...s,
+				currentStreak: res.data!.currentStreak,
+				longestStreak: res.data!.longestStreak,
+			}));
+		}
+	},
 };

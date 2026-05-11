@@ -1105,15 +1105,13 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
     });
 
-    // Apply timezone-aware lazy decay so admins see the same currentStreak
-    // value the user sees on /app — stale (>1 day in user-local time) reads
-    // collapse to 0 without mutating the row.
+    // Apply lazy decay so admins see the same currentStreak value the user
+    // sees on /app — stale reads collapse to 0 without mutating the row.
     return users.map((u) => ({
       ...u,
       currentStreak: this.streakService.applyLazyDecay({
         currentStreak: u.currentStreak,
         lastActiveDate: u.lastActiveDate,
-        timezone: u.timezone,
       }),
     }));
   }

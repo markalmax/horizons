@@ -303,6 +303,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/streaks/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["StreakController_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/auth": {
         parameters: {
             query?: never;
@@ -2016,6 +2032,14 @@ export interface components {
             displayName: string;
             /** @description Current consecutive-day Hackatime streak */
             currentStreak: number;
+        };
+        StreakRefreshResponse: {
+            /** @description Current consecutive-day streak after refresh */
+            currentStreak: number;
+            /** @description All-time longest streak */
+            longestStreak: number;
+            /** @description True if a Hackatime refresh fired this call; false if rate-limited. */
+            refreshed: boolean;
         };
         CreateProjectDto: {
             /** @description Project title */
@@ -4040,6 +4064,31 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["StreakLeaderboardEntry"][];
                 };
+            };
+        };
+    };
+    StreakController_refresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreakRefreshResponse"];
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
