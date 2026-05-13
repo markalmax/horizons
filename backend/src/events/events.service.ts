@@ -288,12 +288,10 @@ export class EventsService {
       throw new NotFoundException('Event not found');
     }
 
-    // EventRsvp included so attendees who came in through the legacy two-step
-    // flow still show up and their spend is captured in totalSpent.
     const txns = await this.prisma.transaction.findMany({
       where: {
         eventId: event.eventId,
-        kind: { in: ['EventRsvp', 'EventTicket'] },
+        kind: 'EventTicket',
       },
       include: {
         user: {
@@ -308,34 +306,14 @@ export class EventsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const byUser = new Map<
-      number,
-      {
-        userId: number;
-        email: string;
-        firstName: string;
-        lastName: string;
-        ticketAt: Date | null;
-        totalSpent: number;
-      }
-    >();
-    for (const t of txns) {
-      const row = byUser.get(t.userId) ?? {
-        userId: t.user.userId,
-        email: t.user.email,
-        firstName: t.user.firstName,
-        lastName: t.user.lastName,
-        ticketAt: null,
-        totalSpent: 0,
-      };
-      // ticketAt prefers the EventTicket timestamp; fall back to legacy RSVP
-      // so users without a new-flow ticket still get a date column.
-      if (t.kind === 'EventTicket') row.ticketAt = t.createdAt;
-      else if (row.ticketAt === null) row.ticketAt = t.createdAt;
-      row.totalSpent = Math.round((row.totalSpent + t.cost) * 10) / 10;
-      byUser.set(t.userId, row);
-    }
-    return Array.from(byUser.values());
+    return txns.map((t) => ({
+      userId: t.user.userId,
+      email: t.user.email,
+      firstName: t.user.firstName,
+      lastName: t.user.lastName,
+      ticketAt: t.createdAt,
+      totalSpent: Math.round(t.cost * 10) / 10,
+    }));
   }
 
   private async sendTicketConfirmation(userId: number, eventTitle: string) {

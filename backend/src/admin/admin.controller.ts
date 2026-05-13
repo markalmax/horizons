@@ -248,13 +248,13 @@ export class AdminController {
   @Get('transactions')
   @UseGuards(RolesGuard)
   @Roles(Role.Admin)
-  @ApiQuery({ name: 'kind', required: false, enum: ['ShopItem', 'EventRsvp', 'EventTicket'] })
+  @ApiQuery({ name: 'kind', required: false, enum: ['ShopItem', 'EventTicket'] })
   @ApiQuery({ name: 'userId', required: false, type: Number })
   @ApiQuery({ name: 'fulfilled', required: false, type: Boolean })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiOkResponse({ type: LedgerResponse })
   async getTransactionLedger(
-    @Query('kind') kind?: 'ShopItem' | 'EventRsvp' | 'EventTicket',
+    @Query('kind') kind?: 'ShopItem' | 'EventTicket',
     @Query('userId') userId?: string,
     @Query('fulfilled') fulfilled?: string,
     @Query('limit') limit?: string,

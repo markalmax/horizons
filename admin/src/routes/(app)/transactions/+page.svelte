@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Button, TextField, Tab } from '$lib/components';
+	import { api } from '$lib/api';
 
-	type Kind = 'ShopItem' | 'EventRsvp' | 'EventTicket';
+	type Kind = 'ShopItem' | 'EventTicket';
 
 	interface LedgerEntry {
 		transactionId: number;
@@ -26,7 +27,6 @@
 		totalCount: number;
 		totalSpent: number;
 		shopCount: number;
-		rsvpCount: number;
 		ticketCount: number;
 	}
 
@@ -34,6 +34,8 @@
 	let summary = $state<LedgerSummary | null>(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let refundingId = $state<number | null>(null);
+	let refundError = $state<string | null>(null);
 
 	let kindFilter = $state<'all' | Kind>('all');
 	let fulfilledFilter = $state<'all' | 'fulfilled' | 'unfulfilled'>('all');
@@ -42,7 +44,6 @@
 	const kindTabs = [
 		{ label: 'All', value: 'all' },
 		{ label: 'Shop', value: 'ShopItem' },
-		{ label: 'RSVPs', value: 'EventRsvp' },
 		{ label: 'Tickets', value: 'EventTicket' },
 	];
 
@@ -118,15 +119,12 @@
 
 	function kindLabel(k: Kind): string {
 		if (k === 'ShopItem') return 'Shop';
-		if (k === 'EventRsvp') return 'RSVP';
 		return 'Ticket';
 	}
 
 	function kindColor(k: Kind): string {
 		if (k === 'ShopItem')
 			return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border-blue-300/50 dark:border-blue-700/50';
-		if (k === 'EventRsvp')
-			return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border-amber-300/50 dark:border-amber-700/50';
 		return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 border-emerald-300/50 dark:border-emerald-700/50';
 	}
 
@@ -135,6 +133,50 @@
 		if (e.item) return e.item.name;
 		return e.itemDescription;
 	}
+
+	async function handleRefund(e: LedgerEntry) {
+		const target = targetLabel(e);
+		const ok =
+			typeof window !== 'undefined'
+				? window.confirm(
+						`Refund this transaction?\n\n` +
+							`User: ${e.user.firstName} ${e.user.lastName} (${e.user.email})\n` +
+							`${kindLabel(e.kind)}: ${target}\n` +
+							`Cost: ${e.cost}h\n\n` +
+							`The ${e.cost}h will be returned to the user (their balance increases).`,
+					)
+				: true;
+		if (!ok) return;
+
+		refundingId = e.transactionId;
+		refundError = null;
+		try {
+			const { error: err } = await api.DELETE('/api/shop/admin/transactions/{id}', {
+				params: { path: { id: e.transactionId } },
+			});
+			if (err) {
+				refundError =
+					err && typeof err === 'object' && 'message' in err
+						? String((err as { message: unknown }).message)
+						: 'Refund failed';
+				return;
+			}
+			entries = entries.filter((row) => row.transactionId !== e.transactionId);
+			if (summary) {
+				summary = {
+					...summary,
+					totalCount: summary.totalCount - 1,
+					totalSpent: Math.round((summary.totalSpent - e.cost) * 10) / 10,
+					shopCount: e.kind === 'ShopItem' ? summary.shopCount - 1 : summary.shopCount,
+					ticketCount: e.kind === 'EventTicket' ? summary.ticketCount - 1 : summary.ticketCount,
+				};
+			}
+		} catch (err) {
+			refundError = err instanceof Error ? err.message : 'Refund failed';
+		} finally {
+			refundingId = null;
+		}
+	}
 </script>
 
 <div class="p-6">
@@ -142,12 +184,12 @@
 		<div class="flex items-baseline justify-between gap-4">
 			<h1 class="text-2xl font-semibold text-ds-text">Transactions</h1>
 			<p class="text-xs text-ds-text-secondary">
-				Unified ledger of shop purchases, RSVPs, and tickets
+				Unified ledger of shop purchases and event tickets
 			</p>
 		</div>
 
 		{#if summary}
-			<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+			<div class="grid gap-3 sm:grid-cols-3">
 				<div class="space-y-1 rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)]">
 					<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">All Transactions</p>
 					<p class="text-2xl font-bold text-ds-text">{summary.totalCount}</p>
@@ -158,13 +200,16 @@
 					<p class="text-2xl font-bold text-ds-text">{summary.shopCount}</p>
 				</div>
 				<div class="space-y-1 rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)]">
-					<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">Event RSVPs</p>
-					<p class="text-2xl font-bold text-ds-text">{summary.rsvpCount}</p>
-				</div>
-				<div class="space-y-1 rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)]">
 					<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">Event Tickets</p>
 					<p class="text-2xl font-bold text-ds-text">{summary.ticketCount}</p>
 				</div>
+			</div>
+		{/if}
+
+		{#if refundError}
+			<div class="flex items-center justify-between gap-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/20 dark:text-red-200">
+				<span>{refundError}</span>
+				<button class="text-xs underline" onclick={() => (refundError = null)}>Dismiss</button>
 			</div>
 		{/if}
 
@@ -211,16 +256,17 @@
 						<th class="px-3 py-2 text-right font-semibold">Cost</th>
 						<th class="px-3 py-2 font-semibold">Status</th>
 						<th class="px-3 py-2 font-semibold">Date</th>
+						<th class="px-3 py-2 font-semibold text-right">Actions</th>
 					</tr>
 				</thead>
 				<tbody>
 					{#if loading && entries.length === 0}
 						<tr>
-							<td colspan="8" class="px-3 py-8 text-center text-sm text-ds-text-secondary">Loading transactions…</td>
+							<td colspan="9" class="px-3 py-8 text-center text-sm text-ds-text-secondary">Loading transactions…</td>
 						</tr>
 					{:else if filteredEntries.length === 0}
 						<tr>
-							<td colspan="8" class="px-3 py-8 text-center text-sm text-ds-text-secondary">No transactions match the current filters.</td>
+							<td colspan="9" class="px-3 py-8 text-center text-sm text-ds-text-secondary">No transactions match the current filters.</td>
 						</tr>
 					{:else}
 						{#each filteredEntries as e (e.transactionId)}
@@ -251,6 +297,15 @@
 									{/if}
 								</td>
 								<td class="px-3 py-2 text-xs text-ds-text-secondary">{formatDateTime(e.createdAt)}</td>
+								<td class="px-3 py-2 text-right">
+									<button
+										class="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-700/50 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+										onclick={() => handleRefund(e)}
+										disabled={refundingId === e.transactionId}
+									>
+										{refundingId === e.transactionId ? 'Refunding…' : 'Refund'}
+									</button>
+								</td>
 							</tr>
 						{/each}
 					{/if}

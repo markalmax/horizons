@@ -1414,9 +1414,9 @@ export class LedgerEntryResponse {
   transactionId: number;
 
   @ApiProperty({
-    enum: ['ShopItem', 'EventRsvp', 'EventTicket'],
+    enum: ['ShopItem', 'EventTicket'],
   })
-  kind: 'ShopItem' | 'EventRsvp' | 'EventTicket';
+  kind: 'ShopItem' | 'EventTicket';
 
   @ApiProperty()
   itemDescription: string;
@@ -1452,9 +1452,6 @@ export class LedgerSummaryResponse {
 
   @ApiProperty()
   shopCount: number;
-
-  @ApiProperty()
-  rsvpCount: number;
 
   @ApiProperty()
   ticketCount: number;
