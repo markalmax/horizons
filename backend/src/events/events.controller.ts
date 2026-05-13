@@ -69,16 +69,10 @@ export class EventsAuthController {
     return this.eventsService.getTicketStatus(req.user.userId, slug);
   }
 
-  @Post(':slug/rsvp')
-  @ApiCreatedResponse({ type: TicketTransactionResponse })
-  async rsvpToEvent(@Param('slug') slug: string, @Req() req: Request) {
-    return this.eventsService.rsvpToEvent(req.user.userId, slug);
-  }
-
   @Post(':slug/ticket')
   @ApiCreatedResponse({ type: TicketTransactionResponse })
-  async upgradeToTicket(@Param('slug') slug: string, @Req() req: Request) {
-    return this.eventsService.upgradeToTicket(req.user.userId, slug);
+  async buyTicket(@Param('slug') slug: string, @Req() req: Request) {
+    return this.eventsService.buyTicket(req.user.userId, slug);
   }
 }
 

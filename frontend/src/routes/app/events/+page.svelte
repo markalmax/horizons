@@ -16,7 +16,7 @@
 
 	const eventsMap = yaml.load(eventsRaw) as Record<string, EventConfig>;
 
-	type ItemKey = 'rsvp' | 'ticket' | 'stipends' | 'change';
+	type ItemKey = 'ticket' | 'stipends' | 'change';
 	type NavItem = {
 		key: ItemKey;
 		title: string;
@@ -29,8 +29,7 @@
 	};
 
 	const navItems: NavItem[] = [
-		{ key: 'rsvp', title: 'RSVP', prereqLabel: 'RSVP', colorKey: 'secondary' },
-		{ key: 'ticket', title: 'Buy Ticket', prereqLabel: 'ticket', prereq: 'rsvp', colorKey: 'primary' },
+		{ key: 'ticket', title: 'Buy Ticket', prereqLabel: 'ticket', colorKey: 'primary' },
 		{ key: 'stipends', title: 'Travel Stipends', prereq: 'ticket' },
 		{ key: 'change', title: 'Change Event' },
 	];
@@ -46,14 +45,14 @@
 	let completedHours = $state(0);
 	let loading = $state(true);
 	let shakingKey = $state<string | null>(null);
-	// Purchase state mirrors /api/events/auth/:slug/ticket-status. When rsvpCost
-	// is null the event uses simple pinning (no RSVP transaction), so we treat
-	// the RSVP step as already done — see hydrateTicketStatus().
-	let rsvpCost = $state<number | null>(null);
+	// Purchase state mirrors /api/events/auth/:slug/ticket-status. ticketThreshold
+	// gates eligibility on approved hours; ticketCost is the deducted price
+	// (balance is allowed to go negative).
+	let ticketThreshold = $state<number | null>(null);
 	let ticketCost = $state<number | null>(null);
-	let hasRsvp = $state(false);
 	let hasTicket = $state(false);
 	let balance = $state(0);
+	let approvedHours = $state(0);
 	let purchasing = $state<ItemKey | null>(null);
 	let purchaseError = $state<string | null>(null);
 	// First Enter / click arms the confirm prompt; the second commits the purchase.
@@ -61,36 +60,35 @@
 	let confirmingKey = $state<ItemKey | null>(null);
 
 	// --- DEBUG: ?debug enables overlay to preview each event + each state ---
-	type DebugBalanceState = '' | 'none' | '15' | '30' | '60';
+	type DebugApprovedState = '' | 'none' | '15' | '30' | '60';
 	type DebugBoolState = '' | 'yes' | 'no';
 	const debugMode = $derived(page.url.searchParams.has('debug'));
 	let debugEventSlug = $state<string>('');
-	let debugBalanceState = $state<DebugBalanceState>('');
-	let debugRsvpState = $state<DebugBoolState>('');
+	let debugApprovedState = $state<DebugApprovedState>('');
 	let debugTicketState = $state<DebugBoolState>('');
-	let debugRsvpCost = $state<number | null>(15);
-	let debugTicketCost = $state<number | null>(15);
+	let debugThreshold = $state<number | null>(15);
+	let debugTicketCost = $state<number | null>(30);
 
 	const effectiveSlug = $derived(debugEventSlug || pinnedSlug);
 	const effectiveConfig = $derived(eventsMap[effectiveSlug] ?? pinnedConfig);
 	const effectiveImage = $derived(
 		debugEventSlug ? (eventsMap[debugEventSlug]?.eventCard?.bgImage ?? null) : pinnedImageUrl
 	);
-	const effectiveBalance = $derived(
-		debugBalanceState === '' ? balance :
-		debugBalanceState === 'none' ? 0 :
-		Number(debugBalanceState)
-	);
-	const effectiveHasRsvp = $derived(
-		debugRsvpState === '' ? hasRsvp : debugRsvpState === 'yes'
+	const effectiveApprovedHours = $derived(
+		debugApprovedState === '' ? approvedHours :
+		debugApprovedState === 'none' ? 0 :
+		Number(debugApprovedState)
 	);
 	const effectiveHasTicket = $derived(
 		debugTicketState === '' ? hasTicket : debugTicketState === 'yes'
 	);
-	const effectiveRsvpCost = $derived(debugMode && debugEventSlug ? debugRsvpCost : rsvpCost);
+	const effectiveTicketThreshold = $derived(debugMode && debugEventSlug ? debugThreshold : ticketThreshold);
 	const effectiveTicketCost = $derived(debugMode && debugEventSlug ? debugTicketCost : ticketCost);
+	const effectiveBalance = $derived(
+		debugApprovedState === '' ? balance : effectiveApprovedHours
+	);
 	const effectiveCompletedHours = $derived(
-		debugBalanceState === '' ? completedHours : Math.max(effectiveBalance, completedHours)
+		debugApprovedState === '' ? completedHours : Math.max(effectiveApprovedHours, completedHours)
 	);
 
 	// Hydrate from cache for instant render.
@@ -113,19 +111,19 @@
 			.catch(() => null);
 		const data = res?.data as
 			| {
-					rsvpCost: number | null;
+					ticketThreshold: number | null;
 					ticketCost: number | null;
-					hasRsvp: boolean;
 					hasTicket: boolean;
 					balance: number;
+					approvedHours: number;
 				}
 			| undefined;
 		if (!data) return;
-		rsvpCost = data.rsvpCost;
+		ticketThreshold = data.ticketThreshold;
 		ticketCost = data.ticketCost;
-		hasRsvp = data.hasRsvp;
 		hasTicket = data.hasTicket;
 		balance = Math.round(data.balance * 10) / 10;
+		approvedHours = Math.round(data.approvedHours * 10) / 10;
 	}
 
 	onMount(async () => {
@@ -173,13 +171,11 @@
 	type ItemStatus = 'locked' | 'available' | 'purchased';
 
 	function isPurchased(key: ItemKey): boolean {
-		if (key === 'rsvp') return effectiveHasRsvp;
 		if (key === 'ticket') return effectiveHasTicket;
 		return false;
 	}
 
 	function costFor(item: NavItem): number | null {
-		if (item.key === 'rsvp') return effectiveRsvpCost;
 		if (item.key === 'ticket') return effectiveTicketCost;
 		return null;
 	}
@@ -187,11 +183,17 @@
 	function statusOf(item: NavItem): ItemStatus {
 		if (isPurchased(item.key)) return 'purchased';
 		if (item.prereq && !isPurchased(item.prereq)) return 'locked';
-		const cost = costFor(item);
-		// Cost-bearing items: must be configured (non-null) and affordable.
 		if (item.colorKey) {
+			const cost = costFor(item);
 			if (cost === null) return 'locked';
-			if (effectiveBalance < cost) return 'locked';
+			// Threshold gates eligibility on approved hours earned; balance is
+			// allowed to go negative so it doesn't gate purchase.
+			if (
+				effectiveTicketThreshold !== null &&
+				effectiveApprovedHours < effectiveTicketThreshold
+			) {
+				return 'locked';
+			}
 		}
 		return 'available';
 	}
@@ -224,6 +226,13 @@
 			}
 			const cost = costFor(item);
 			if (item.colorKey && cost === null) return 'Not yet available';
+			if (
+				item.key === 'ticket' &&
+				effectiveTicketThreshold !== null &&
+				effectiveApprovedHours < effectiveTicketThreshold
+			) {
+				return `Earn ${effectiveTicketThreshold} approved hours to unlock`;
+			}
 			if (cost !== null) return `Purchase for ${cost} hours`;
 			return null;
 		}
@@ -255,7 +264,7 @@
 			triggerShake(item.key);
 			return;
 		}
-		if (item.key === 'rsvp' || item.key === 'ticket') {
+		if (item.key === 'ticket') {
 			// Two-step commit: first activation arms the confirm prompt, second commits.
 			// Leave confirmingKey set through the in-flight purchase so the label
 			// stays steady (the finally in purchase() clears it).
@@ -270,20 +279,17 @@
 		triggerShake(item.key);
 	}
 
-	async function purchase(key: 'rsvp' | 'ticket') {
+	async function purchase(key: 'ticket') {
 		if (debugMode) {
 			// Debug mode just flips local state so the visual flow can be exercised
 			// without hitting the backend.
-			if (key === 'rsvp') hasRsvp = true; else hasTicket = true;
+			hasTicket = true;
 			return;
 		}
 		purchasing = key;
 		purchaseError = null;
 		try {
-			const path = key === 'rsvp'
-				? '/api/events/auth/{slug}/rsvp'
-				: '/api/events/auth/{slug}/ticket';
-			const res = await api.POST(path as any, {
+			const res = await api.POST('/api/events/auth/{slug}/ticket' as any, {
 				params: { path: { slug: pinnedSlug } },
 			});
 			const ok = (res as any).response?.ok;
@@ -300,15 +306,14 @@
 			// Apply the success result from the POST response immediately. The POST
 			// already returns the authoritative newBalance, so the UI reflects the
 			// deduction even if the follow-up hydrate is slow or silently fails.
-			if (key === 'rsvp') hasRsvp = true; else hasTicket = true;
+			hasTicket = true;
 			const successData = (res as any).data as { newBalance?: number } | undefined;
 			if (typeof successData?.newBalance === 'number') {
 				balance = Math.round(successData.newBalance * 10) / 10;
 			}
 			// Re-sync for any other side effects (status changes, hour-cost flips).
 			await hydrateTicketStatus(pinnedSlug);
-			const persisted = key === 'rsvp' ? hasRsvp : hasTicket;
-			if (!persisted) {
+			if (!hasTicket) {
 				purchaseError = 'Purchase did not persist — please try again.';
 				triggerShake(key);
 			}
@@ -353,7 +358,7 @@
 
 	function actionLabelFor(item: NavItem, status: ItemStatus): string | null {
 		if (item.key === 'change') return 'TO CHANGE';
-		if (item.key !== 'rsvp' && item.key !== 'ticket') return null;
+		if (item.key !== 'ticket') return null;
 		if (status !== 'available') return null;
 		if (purchasing === item.key) return 'PURCHASING...';
 		const cost = costFor(item);
@@ -535,22 +540,13 @@
 		</div>
 
 		<div class="debug-section">
-			<div class="debug-label">Balance</div>
+			<div class="debug-label">Approved hours</div>
 			<div class="debug-buttons">
-				<button class:active={debugBalanceState === ''} onclick={() => (debugBalanceState = '')}>actual ({round1(balance)}h)</button>
-				<button class:active={debugBalanceState === 'none'} onclick={() => (debugBalanceState = 'none')}>0h</button>
-				<button class:active={debugBalanceState === '15'} onclick={() => (debugBalanceState = '15')}>15h</button>
-				<button class:active={debugBalanceState === '30'} onclick={() => (debugBalanceState = '30')}>30h</button>
-				<button class:active={debugBalanceState === '60'} onclick={() => (debugBalanceState = '60')}>60h</button>
-			</div>
-		</div>
-
-		<div class="debug-section">
-			<div class="debug-label">RSVP'd</div>
-			<div class="debug-buttons">
-				<button class:active={debugRsvpState === ''} onclick={() => (debugRsvpState = '')}>actual ({hasRsvp ? 'yes' : 'no'})</button>
-				<button class:active={debugRsvpState === 'no'} onclick={() => (debugRsvpState = 'no')}>no</button>
-				<button class:active={debugRsvpState === 'yes'} onclick={() => (debugRsvpState = 'yes')}>yes</button>
+				<button class:active={debugApprovedState === ''} onclick={() => (debugApprovedState = '')}>actual ({round1(approvedHours)}h)</button>
+				<button class:active={debugApprovedState === 'none'} onclick={() => (debugApprovedState = 'none')}>0h</button>
+				<button class:active={debugApprovedState === '15'} onclick={() => (debugApprovedState = '15')}>15h</button>
+				<button class:active={debugApprovedState === '30'} onclick={() => (debugApprovedState = '30')}>30h</button>
+				<button class:active={debugApprovedState === '60'} onclick={() => (debugApprovedState = '60')}>60h</button>
 			</div>
 		</div>
 
@@ -567,10 +563,10 @@
 			<div class="debug-section">
 				<div class="debug-label">Mock costs (only when overriding event)</div>
 				<div class="debug-buttons">
-					<button class:active={debugRsvpCost !== null} onclick={() => (debugRsvpCost = debugRsvpCost === null ? 15 : null)}>
-						RSVP: {debugRsvpCost === null ? 'null' : `${debugRsvpCost}h`}
+					<button class:active={debugThreshold !== null} onclick={() => (debugThreshold = debugThreshold === null ? 15 : null)}>
+						Threshold: {debugThreshold === null ? 'null' : `${debugThreshold}h`}
 					</button>
-					<button class:active={debugTicketCost !== null} onclick={() => (debugTicketCost = debugTicketCost === null ? 15 : null)}>
+					<button class:active={debugTicketCost !== null} onclick={() => (debugTicketCost = debugTicketCost === null ? 30 : null)}>
 						Ticket: {debugTicketCost === null ? 'null' : `${debugTicketCost}h`}
 					</button>
 				</div>
@@ -579,8 +575,8 @@
 
 		<div class="debug-section debug-readout">
 			<div>slug: {effectiveSlug}{debugEventSlug ? ' (debug)' : ''}</div>
-			<div>balance: {round1(effectiveBalance)}h{debugBalanceState ? ' (debug)' : ''}</div>
-			<div>rsvpCost: {effectiveRsvpCost === null ? 'null' : `${effectiveRsvpCost}h`} · ticketCost: {effectiveTicketCost === null ? 'null' : `${effectiveTicketCost}h`}</div>
+			<div>approved: {round1(effectiveApprovedHours)}h{debugApprovedState ? ' (debug)' : ''} · balance: {round1(effectiveBalance)}h</div>
+			<div>threshold: {effectiveTicketThreshold === null ? 'null' : `${effectiveTicketThreshold}h`} · ticketCost: {effectiveTicketCost === null ? 'null' : `${effectiveTicketCost}h`}</div>
 			<div>completed: {round1(effectiveCompletedHours)}h / target: {round1(targetHours)}h</div>
 			<div class="debug-swatch-row">primary: <span class="swatch" style="background: {eventColor('primary')};"></span><span>{eventColor('primary')}</span></div>
 			<div class="debug-swatch-row">secondary: <span class="swatch" style="background: {eventColor('secondary')};"></span><span>{eventColor('secondary')}</span></div>

@@ -12,15 +12,12 @@
 		/** Hours that are submitted/shipped and awaiting review. */
 		pendingHours?: number;
 		attendCount?: number | null;
-		/** Approved-hour cost to RSVP. Null = event doesn't use the RSVP purchase flow. */
-		rsvpCost?: number | null;
-		/** Approved-hour cost to upgrade to a ticket. Null = ticket not yet available. */
+		/** Approved-hour threshold a user must hit before they can buy a ticket. Null = no gate. */
+		ticketThreshold?: number | null;
+		/** Approved-hour cost deducted on ticket purchase. Null = ticket not yet available. */
 		ticketCost?: number | null;
-		/** Whether RSVP purchase is currently open. False = configured but not in window. */
-		rsvpEnabled?: boolean;
 		/** Whether ticket purchase is currently open. */
 		ticketEnabled?: boolean;
-		hasRsvp?: boolean;
 		hasTicket?: boolean;
 		onclick?: (e: MouseEvent) => void;
 		onmouseenter?: () => void;
@@ -37,11 +34,9 @@
 		approvedHours = 0,
 		pendingHours = 0,
 		attendCount = null,
-		rsvpCost = null,
+		ticketThreshold = null,
 		ticketCost = null,
-		rsvpEnabled = false,
 		ticketEnabled = false,
-		hasRsvp = false,
 		hasTicket = false,
 		onclick,
 		onmouseenter,
@@ -59,44 +54,33 @@
 	type ProgressState =
 		| 'qualified'
 		| 'buy-ticket'
-		| 'buy-rsvp'
 		| 'ship'
-		| 'pending-met'
 		| 'approved-majority'
 		| 'default';
 
 	const progressState = $derived<ProgressState>((() => {
 		// Ticket already bought — fully qualified regardless of running hour total.
 		if (hasTicket) return 'qualified';
-		// Enough approved hours to upgrade to a ticket, and the RSVP step is done.
-		// ticketEnabled gates whether the purchase window is currently open.
+		// Threshold of approved hours hit and the purchase window is open.
+		// Null threshold means no eligibility gate; only ticketCost+ticketEnabled
+		// need to be set for the purchase prompt to show.
 		if (
 			ticketCost !== null &&
 			ticketEnabled &&
-			hasRsvp &&
 			!hasTicket &&
-			approvedDisplay >= ticketCost
+			(ticketThreshold === null || approvedDisplay >= ticketThreshold)
 		) {
 			return 'buy-ticket';
-		}
-		// Enough approved hours to RSVP, but haven't yet — RSVP gates ticket so this
-		// takes priority over buy-ticket when both could otherwise apply.
-		// rsvpEnabled gates whether the purchase window is currently open.
-		if (
-			rsvpCost !== null &&
-			rsvpEnabled &&
-			!hasRsvp &&
-			approvedDisplay >= rsvpCost
-		) {
-			return 'buy-rsvp';
 		}
 		if (targetHours <= 0) return 'default';
 		// Approved already past goal → qualified.
 		if (approvedDisplay >= targetHours) return 'qualified';
-		// Approved + pending will get them past goal once approved → pending-met.
-		if (approvedDisplay + pendingDisplay >= targetHours) return 'pending-met';
-		// They've logged enough hours but haven't shipped enough into review → ship.
-		if (completedDisplay >= targetHours) return 'ship';
+		// Approved + pending sums past goal — surface the approved-majority view
+		// so the user sees how close their approved hours are alongside completed.
+		if (approvedDisplay + pendingDisplay >= targetHours) return 'approved-majority';
+		// They've logged 15+ hours but haven't shipped enough into review to push
+		// approved+pending past the goal → nudge them to ship.
+		if (completedDisplay >= 15) return 'ship';
 		// "approved" leads when it's the larger of the two numbers — i.e. the
 		// user's approved progress dominates whatever they've otherwise logged.
 		const majorityApproved =
@@ -160,19 +144,11 @@
 			class="progress-bar"
 			class:state-ship={progressState === 'ship'}
 			class:state-qualified={progressState === 'qualified'}
-			class:state-buy-rsvp={progressState === 'buy-rsvp'}
 			class:state-buy-ticket={progressState === 'buy-ticket'}
 		>
 			{#if progressState === 'qualified'}
 				<p class="font-cook text-[16px] text-black m-0 leading-normal whitespace-nowrap">
 					{round1(targetHours)}/{round1(targetHours)} approved • QUALIFIED
-				</p>
-			{:else if progressState === 'buy-rsvp'}
-				<p class="font-cook text-[16px] text-black m-0 leading-normal whitespace-nowrap">
-					Buy RSVP now
-				</p>
-				<p class="font-cook text-[12px] text-black/70 m-0 leading-normal whitespace-nowrap">
-					{rsvpCost}hr to RSVP
 				</p>
 			{:else if progressState === 'buy-ticket'}
 				<p class="font-cook text-[16px] text-black m-0 leading-normal whitespace-nowrap">
@@ -187,10 +163,6 @@
 				</p>
 				<p class="font-cook text-[12px] text-black m-0 leading-normal whitespace-nowrap">
 					Ship to qualify Now
-				</p>
-			{:else if progressState === 'pending-met'}
-				<p class="font-cook text-[16px] text-black m-0 leading-normal whitespace-nowrap">
-					{completedDisplay}/{round1(targetHours)} hours completed
 				</p>
 			{:else if progressState === 'approved-majority'}
 				<p class="font-cook text-[16px] text-black m-0 leading-normal whitespace-nowrap">
@@ -349,10 +321,6 @@
 
 	.progress-bar.state-qualified {
 		background-color: #ffa936;
-	}
-
-	.progress-bar.state-buy-rsvp {
-		background-color: #f86d95;
 	}
 
 	.progress-bar.state-buy-ticket {

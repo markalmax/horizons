@@ -32,13 +32,10 @@ export class EventResponse {
   hourCost: number;
 
   @ApiProperty({ type: Number, nullable: true })
-  rsvpCost: number | null;
+  ticketThreshold: number | null;
 
   @ApiProperty({ type: Number, nullable: true })
   ticketCost: number | null;
-
-  @ApiProperty()
-  rsvpEnabled: boolean;
 
   @ApiProperty()
   ticketEnabled: boolean;
@@ -119,25 +116,22 @@ export class TicketStatusResponse {
   slug: string;
 
   @ApiProperty({ type: Number, nullable: true })
-  rsvpCost: number | null;
+  ticketThreshold: number | null;
 
   @ApiProperty({ type: Number, nullable: true })
   ticketCost: number | null;
 
   @ApiProperty()
-  rsvpEnabled: boolean;
-
-  @ApiProperty()
   ticketEnabled: boolean;
-
-  @ApiProperty()
-  hasRsvp: boolean;
 
   @ApiProperty()
   hasTicket: boolean;
 
   @ApiProperty()
   balance: number;
+
+  @ApiProperty()
+  approvedHours: number;
 }
 
 export class TicketTransactionResponse {
@@ -160,9 +154,6 @@ export class AttendeeResponse {
 
   @ApiProperty()
   lastName: string;
-
-  @ApiProperty({ type: Date, nullable: true })
-  rsvpAt: Date | null;
 
   @ApiProperty({ type: Date, nullable: true })
   ticketAt: Date | null;

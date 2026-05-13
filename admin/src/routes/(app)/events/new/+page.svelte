@@ -20,9 +20,8 @@
         startDate: string;
         endDate: string;
         hourCost: string;
-        rsvpCost: string;
+        ticketThreshold: string;
         ticketCost: string;
-        rsvpEnabled: boolean;
         ticketEnabled: boolean;
         isActive: boolean;
     }>({
@@ -35,9 +34,8 @@
         startDate: '',
         endDate: '',
         hourCost: '',
-        rsvpCost: '',
+        ticketThreshold: '',
         ticketCost: '',
-        rsvpEnabled: false,
         ticketEnabled: false,
         isActive: true
     });
@@ -61,9 +59,8 @@
                 startDate: eventForm.startDate,
                 endDate: eventForm.endDate,
                 hourCost: parseFloat(eventForm.hourCost),
-                rsvpCost: eventForm.rsvpCost === '' ? undefined : parseFloat(eventForm.rsvpCost),
+                ticketThreshold: eventForm.ticketThreshold === '' ? undefined : parseFloat(eventForm.ticketThreshold),
                 ticketCost: eventForm.ticketCost === '' ? undefined : parseFloat(eventForm.ticketCost),
-                rsvpEnabled: eventForm.rsvpCost === '' ? undefined : eventForm.rsvpEnabled,
                 ticketEnabled: eventForm.ticketCost === '' ? undefined : eventForm.ticketEnabled,
             };
             const { data, error } = await api.POST('/api/events/admin', {
@@ -183,34 +180,32 @@
                 />
             </div>
             <div class="space-y-2">
-                <label class="text-sm font-medium text-ds-text-secondary" for="event-rsvp-cost">RSVP Cost (hours)</label>
+                <label class="text-sm font-medium text-ds-text-secondary" for="event-ticket-threshold">Ticket Threshold (approved hours)</label>
                 <TextField
-                    id="event-rsvp-cost"
+                    id="event-ticket-threshold"
                     type="number"
                     step="0.1"
                     min="0"
-                    placeholder="Leave blank for free / no RSVP flow"
-                    bind:value={eventForm.rsvpCost}
+                    placeholder="Leave blank for no eligibility gate"
+                    bind:value={eventForm.ticketThreshold}
                 />
-                <label class="flex items-center gap-2 pt-1 text-xs text-ds-text-secondary" class:opacity-50={eventForm.rsvpCost === ''}>
-                    <Checkbox bind:checked={eventForm.rsvpEnabled} disabled={eventForm.rsvpCost === ''} />
-                    RSVPs open for purchase
-                </label>
+                <p class="pt-1 text-xs text-ds-text-secondary">Users must hit this many approved hours before they can buy.</p>
             </div>
             <div class="space-y-2">
-                <label class="text-sm font-medium text-ds-text-secondary" for="event-ticket-cost">Full Ticket Cost (hours)</label>
+                <label class="text-sm font-medium text-ds-text-secondary" for="event-ticket-cost">Ticket Cost (hours)</label>
                 <TextField
                     id="event-ticket-cost"
                     type="number"
                     step="0.1"
                     min="0"
-                    placeholder="Leave blank for RSVP-only"
+                    placeholder="Leave blank to disable ticket purchase"
                     bind:value={eventForm.ticketCost}
                 />
                 <label class="flex items-center gap-2 pt-1 text-xs text-ds-text-secondary" class:opacity-50={eventForm.ticketCost === ''}>
                     <Checkbox bind:checked={eventForm.ticketEnabled} disabled={eventForm.ticketCost === ''} />
                     Tickets open for purchase
                 </label>
+                <p class="text-xs text-ds-text-secondary">Deducted in full — balance is allowed to go negative.</p>
             </div>
             <div class="flex items-center gap-4">
                 <label class="flex items-center gap-2 text-sm text-ds-text-secondary">

@@ -111,14 +111,12 @@
 	let pinnedEventImageUrl = $state<string | null>(null);
 	let eventHourCosts = $state<Record<string, number>>({});
 
-	// Ticket-status for the pinned event — drives the buy-rsvp / buy-ticket
-	// indicators in EventColumnCard. Costs stay null until /ticket-status loads
-	// so the indicators don't flash before we know the user's purchase state.
-	let pinnedRsvpCost = $state<number | null>(null);
+	// Ticket-status for the pinned event — drives the buy-ticket indicator in
+	// EventColumnCard. Stays null until /ticket-status loads so the indicator
+	// doesn't flash before we know the user's purchase state.
+	let pinnedTicketThreshold = $state<number | null>(null);
 	let pinnedTicketCost = $state<number | null>(null);
-	let pinnedRsvpEnabled = $state(false);
 	let pinnedTicketEnabled = $state(false);
-	let pinnedHasRsvp = $state(false);
 	let pinnedHasTicket = $state(false);
 
 	// #horizons huddle state — populated by polling /api/huddles/status. When `huddleActive`
@@ -138,7 +136,6 @@
 	let debugHuddleState = $state<DebugHuddleState>('');
 	let debugCommunityState = $state<DebugCommunityState>('');
 	let debugStreakState = $state<DebugStreakState>('');
-	let debugRsvpState = $state<DebugBoolState>('');
 	let debugTicketState = $state<DebugBoolState>('');
 	// Sliders that override the live approved/completed/pending hour values for
 	// the event column card. null = use the live value from the API. Toggling
@@ -280,27 +277,19 @@
 	const eventColumnTarget = $derived(eventHourCosts[eventColumnSlug] ?? targetHours);
 	// Ticket-status overrides — only the actual pinned event has a fetched status.
 	// In debug mode (different event picked, or no cost data fetched yet) we fall
-	// back to typical 15h/30h costs so the buy-rsvp/buy-ticket indicators stay
+	// back to typical 15h threshold + 30h cost so the buy-ticket indicator stays
 	// reachable from the debug panel.
-	const eventColumnRsvpCost = $derived(
-		debugEventSlug ? 15 : (pinnedRsvpCost ?? (debugMode ? 15 : null))
+	const eventColumnTicketThreshold = $derived(
+		debugEventSlug ? 15 : (pinnedTicketThreshold ?? (debugMode ? 15 : null))
 	);
 	const eventColumnTicketCost = $derived(
 		debugEventSlug
 			? (eventHourCosts[eventColumnSlug] ?? 30)
 			: (pinnedTicketCost ?? (debugMode ? 30 : null))
 	);
-	// In debug mode we assume both purchase windows are open so the indicators
-	// remain reachable — the toggles in the debug panel still let you flip them.
-	const eventColumnRsvpEnabled = $derived(debugMode ? true : pinnedRsvpEnabled);
+	// In debug mode we assume the purchase window is open so the indicator
+	// remains reachable — the toggle in the debug panel still lets you flip it.
 	const eventColumnTicketEnabled = $derived(debugMode ? true : pinnedTicketEnabled);
-	const eventColumnHasRsvp = $derived(
-		debugRsvpState !== ''
-			? debugRsvpState === 'yes'
-			: debugEventSlug
-				? false
-				: pinnedHasRsvp
-	);
 	const eventColumnHasTicket = $derived(
 		debugTicketState !== ''
 			? debugTicketState === 'yes'
@@ -347,20 +336,16 @@
 			.catch(() => null);
 		const data = res?.data as
 			| {
-					rsvpCost: number | null;
+					ticketThreshold: number | null;
 					ticketCost: number | null;
-					rsvpEnabled: boolean;
 					ticketEnabled: boolean;
-					hasRsvp: boolean;
 					hasTicket: boolean;
 				}
 			| undefined;
 		if (!data) return;
-		pinnedRsvpCost = data.rsvpCost;
+		pinnedTicketThreshold = data.ticketThreshold;
 		pinnedTicketCost = data.ticketCost;
-		pinnedRsvpEnabled = data.rsvpEnabled;
 		pinnedTicketEnabled = data.ticketEnabled;
-		pinnedHasRsvp = data.hasRsvp;
 		pinnedHasTicket = data.hasTicket;
 	}
 
@@ -408,7 +393,7 @@
 				targetHours = hourCost;
 				pinnedEventImageUrl = event?.imageUrl ?? null;
 				setCachedPinnedEvent(slug, hourCost);
-				// Fire-and-forget — drives the buy-rsvp/buy-ticket indicators on the
+				// Fire-and-forget — drives the buy-ticket indicator on the
 				// event column card. Failures are non-fatal; indicators just stay off.
 				fetchPinnedTicketStatus(slug).catch(() => {});
 			}
@@ -786,11 +771,9 @@
 						completedHours={eventColumnValues.completed}
 						approvedHours={eventColumnValues.approved}
 						pendingHours={eventColumnValues.pending}
-						rsvpCost={eventColumnRsvpCost}
+						ticketThreshold={eventColumnTicketThreshold}
 						ticketCost={eventColumnTicketCost}
-						rsvpEnabled={eventColumnRsvpEnabled}
 						ticketEnabled={eventColumnTicketEnabled}
-						hasRsvp={eventColumnHasRsvp}
 						hasTicket={eventColumnHasTicket}
 						selected={nav.isSelected(COL_PINNED_EVENT, 0)}
 						onmouseenter={() => handleCardHover(COL_PINNED_EVENT, 0)}
@@ -1058,15 +1041,6 @@
 		</div>
 
 		<div class="debug-section">
-			<div class="debug-label">RSVP (event card)</div>
-			<div class="debug-buttons">
-				<button class:active={debugRsvpState === ''} onclick={() => (debugRsvpState = '')}>actual ({eventColumnHasRsvp ? 'yes' : 'no'})</button>
-				<button class:active={debugRsvpState === 'no'} onclick={() => (debugRsvpState = 'no')}>no</button>
-				<button class:active={debugRsvpState === 'yes'} onclick={() => (debugRsvpState = 'yes')}>yes</button>
-			</div>
-		</div>
-
-		<div class="debug-section">
 			<div class="debug-label">Ticket (event card)</div>
 			<div class="debug-buttons">
 				<button class:active={debugTicketState === ''} onclick={() => (debugTicketState = '')}>actual ({eventColumnHasTicket ? 'yes' : 'no'})</button>
@@ -1091,8 +1065,8 @@
 			<div>completed: {eventColumnValues.completed.toFixed(1)}h</div>
 			<div>approved: {eventColumnValues.approved.toFixed(1)}h</div>
 			<div>pending: {eventColumnValues.pending.toFixed(1)}h</div>
-			<div>rsvpCost: {eventColumnRsvpCost ?? '—'}h · ticketCost: {eventColumnTicketCost ?? '—'}h</div>
-			<div>hasRsvp: {eventColumnHasRsvp ? 'yes' : 'no'} · hasTicket: {eventColumnHasTicket ? 'yes' : 'no'} {debugRsvpState || debugTicketState ? '(debug)' : ''}</div>
+			<div>threshold: {eventColumnTicketThreshold ?? '—'}h · ticketCost: {eventColumnTicketCost ?? '—'}h</div>
+			<div>hasTicket: {eventColumnHasTicket ? 'yes' : 'no'} {debugTicketState ? '(debug)' : ''}</div>
 			<div>huddle: {effectiveHuddleActive ? `${effectiveHuddleMembers} member${effectiveHuddleMembers === 1 ? '' : 's'}` : 'inactive'} {debugHuddleState ? '(debug)' : ''}</div>
 			<div>ce live event: {ceHasLiveEvent ? 'yes' : 'no'} · huddle card: {showHuddleCard ? 'shown' : 'hidden'}</div>
 			<div>streak: {effectiveCurrentStreak}d (best {effectiveLongestStreak}d) {debugStreakState ? '(debug)' : ''}</div>

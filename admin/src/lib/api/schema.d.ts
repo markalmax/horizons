@@ -1653,22 +1653,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/events/auth/{slug}/rsvp": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["EventsAuthController_rsvpToEvent"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/events/auth/{slug}/ticket": {
         parameters: {
             query?: never;
@@ -1678,7 +1662,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["EventsAuthController_upgradeToTicket"];
+        post: operations["EventsAuthController_buyTicket"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2701,9 +2685,8 @@ export interface components {
             /** Format: date-time */
             endDate: string;
             hourCost: number;
-            rsvpCost?: number | null;
+            ticketThreshold?: number | null;
             ticketCost?: number | null;
-            rsvpEnabled: boolean;
             ticketEnabled: boolean;
             isActive: boolean;
         };
@@ -3343,9 +3326,8 @@ export interface components {
             /** Format: date-time */
             endDate: string | null;
             hourCost: number;
-            rsvpCost: number | null;
+            ticketThreshold: number | null;
             ticketCost: number | null;
-            rsvpEnabled: boolean;
             ticketEnabled: boolean;
             isActive: boolean;
             /** Format: date-time */
@@ -3366,9 +3348,8 @@ export interface components {
             startDate: string;
             endDate: string;
             hourCost: number;
-            rsvpCost?: number;
+            ticketThreshold?: number;
             ticketCost?: number;
-            rsvpEnabled?: boolean;
             ticketEnabled?: boolean;
             isActive?: boolean;
         };
@@ -3385,9 +3366,8 @@ export interface components {
             /** Format: date-time */
             endDate: string | null;
             hourCost: number;
-            rsvpCost: number | null;
+            ticketThreshold: number | null;
             ticketCost: number | null;
-            rsvpEnabled: boolean;
             ticketEnabled: boolean;
             isActive: boolean;
             /** Format: date-time */
@@ -3405,9 +3385,8 @@ export interface components {
             startDate?: string;
             endDate?: string;
             hourCost?: number;
-            rsvpCost?: number | null;
+            ticketThreshold?: number | null;
             ticketCost?: number | null;
-            rsvpEnabled?: boolean;
             ticketEnabled?: boolean;
             isActive?: boolean;
         };
@@ -3420,8 +3399,6 @@ export interface components {
             email: string;
             firstName: string;
             lastName: string;
-            /** Format: date-time */
-            rsvpAt: string | null;
             /** Format: date-time */
             ticketAt: string | null;
             totalSpent: number;
@@ -3451,13 +3428,12 @@ export interface components {
         };
         TicketStatusResponse: {
             slug: string;
-            rsvpCost: number | null;
+            ticketThreshold: number | null;
             ticketCost: number | null;
-            rsvpEnabled: boolean;
             ticketEnabled: boolean;
-            hasRsvp: boolean;
             hasTicket: boolean;
             balance: number;
+            approvedHours: number;
         };
         TicketTransactionResponse: {
             transactionId: number;
@@ -6304,28 +6280,7 @@ export interface operations {
             };
         };
     };
-    EventsAuthController_rsvpToEvent: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                slug: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketTransactionResponse"];
-                };
-            };
-        };
-    };
-    EventsAuthController_upgradeToTicket: {
+    EventsAuthController_buyTicket: {
         parameters: {
             query?: never;
             header?: never;

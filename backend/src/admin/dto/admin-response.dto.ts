@@ -1173,13 +1173,10 @@ class EventStatsEventDetail {
   hourCost: number;
 
   @ApiPropertyOptional({ type: Number, nullable: true })
-  rsvpCost: number | null;
+  ticketThreshold: number | null;
 
   @ApiPropertyOptional({ type: Number, nullable: true })
   ticketCost: number | null;
-
-  @ApiProperty()
-  rsvpEnabled: boolean;
 
   @ApiProperty()
   ticketEnabled: boolean;

@@ -417,9 +417,10 @@ model Event {
   startDate     DateTime      @map("start_date") @db.Date
   endDate       DateTime      @map("end_date") @db.Date
   hourCost      Float         @map("hour_cost")
-  rsvpCost      Float?        @map("rsvp_cost")
+  // Minimum approved hours a user must have earned before they can buy a ticket.
+  // Column name preserved from the old two-step RSVP/ticket flow.
+  ticketThreshold Float?      @map("rsvp_cost")
   ticketCost    Float?        @map("ticket_cost")
-  rsvpEnabled   Boolean       @default(false) @map("rsvp_enabled")
   ticketEnabled Boolean       @default(false) @map("ticket_enabled")
   isActive      Boolean       @default(true) @map("is_active")
   createdAt     DateTime      @default(now()) @map("created_at")

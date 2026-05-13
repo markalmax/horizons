@@ -28,9 +28,8 @@
 			startDate: string;
 			endDate: string;
 			hourCost: number;
-			rsvpCost: number | null;
+			ticketThreshold: number | null;
 			ticketCost: number | null;
-			rsvpEnabled: boolean;
 			ticketEnabled: boolean;
 			isActive: boolean;
 		};
@@ -80,9 +79,8 @@
 		startDate: '',
 		endDate: '',
 		hourCost: '',
-		rsvpCost: '',
+		ticketThreshold: '',
 		ticketCost: '',
-		rsvpEnabled: false,
 		ticketEnabled: false,
 		isActive: true,
 	});
@@ -92,7 +90,6 @@
 		email: string;
 		firstName: string;
 		lastName: string;
-		rsvpAt: string | null;
 		ticketAt: string | null;
 		totalSpent: number;
 	}
@@ -166,9 +163,8 @@
 			startDate: e.startDate ? new Date(e.startDate).toISOString().slice(0, 10) : '',
 			endDate: e.endDate ? new Date(e.endDate).toISOString().slice(0, 10) : '',
 			hourCost: String(e.hourCost),
-			rsvpCost: e.rsvpCost === null || e.rsvpCost === undefined ? '' : String(e.rsvpCost),
+			ticketThreshold: e.ticketThreshold === null || e.ticketThreshold === undefined ? '' : String(e.ticketThreshold),
 			ticketCost: e.ticketCost === null || e.ticketCost === undefined ? '' : String(e.ticketCost),
-			rsvpEnabled: !!e.rsvpEnabled,
 			ticketEnabled: !!e.ticketEnabled,
 			isActive: e.isActive,
 		};
@@ -187,9 +183,8 @@
 				startDate: editForm.startDate || undefined,
 				endDate: editForm.endDate || undefined,
 				hourCost: parseFloat(editForm.hourCost),
-				rsvpCost: editForm.rsvpCost === '' ? null : parseFloat(editForm.rsvpCost),
+				ticketThreshold: editForm.ticketThreshold === '' ? null : parseFloat(editForm.ticketThreshold),
 				ticketCost: editForm.ticketCost === '' ? null : parseFloat(editForm.ticketCost),
-				rsvpEnabled: editForm.rsvpCost === '' ? false : editForm.rsvpEnabled,
 				ticketEnabled: editForm.ticketCost === '' ? false : editForm.ticketEnabled,
 				isActive: editForm.isActive,
 			};
@@ -289,7 +284,7 @@
 
 		const slices = [
 			{ name: 'Qualified (≥30h)', value: counts.qualified, color: qualifiedColor },
-			{ name: 'Pending RSVPed (≥15h)', value: Math.max(0, counts.rsvped - counts.qualified), color: rsvpedColor },
+			{ name: 'Mid-funnel (≥15h)', value: Math.max(0, counts.rsvped - counts.qualified), color: rsvpedColor },
 			{ name: 'Engaged (≥1h)', value: Math.max(0, counts.engaged - counts.rsvped), color: engagedColor },
 			{ name: 'Signed up only', value: Math.max(0, q.signedUp - counts.engaged), color: signedUpOnlyColor },
 		].filter((s) => s.value > 0);
@@ -468,7 +463,7 @@
 				{#if attendeesError}
 					<p class="text-sm text-ds-red">{attendeesError}</p>
 				{:else if attendees.length === 0}
-					<p class="text-sm text-ds-text-secondary">No RSVPs or tickets yet.</p>
+					<p class="text-sm text-ds-text-secondary">No tickets yet.</p>
 				{:else}
 					<div class="overflow-x-auto">
 						<table class="w-full text-sm">
@@ -476,7 +471,6 @@
 								<tr class="border-b border-ds-border text-left text-[11px] uppercase tracking-wide text-ds-text-secondary">
 									<th class="py-2 pr-4 font-semibold">Name</th>
 									<th class="py-2 pr-4 font-semibold">Email</th>
-									<th class="py-2 pr-4 font-semibold">RSVP at</th>
 									<th class="py-2 pr-4 font-semibold">Ticket at</th>
 									<th class="py-2 pr-4 font-semibold text-right">Spent</th>
 								</tr>
@@ -486,7 +480,6 @@
 									<tr class="border-b border-ds-border/60">
 										<td class="py-2 pr-4 text-ds-text">{a.firstName} {a.lastName}</td>
 										<td class="py-2 pr-4 text-ds-text-secondary">{a.email}</td>
-										<td class="py-2 pr-4 text-ds-text-secondary">{a.rsvpAt ? formatDate(a.rsvpAt) : '—'}</td>
 										<td class="py-2 pr-4 text-ds-text-secondary">{a.ticketAt ? formatDate(a.ticketAt) : '—'}</td>
 										<td class="py-2 pr-4 text-right text-ds-text">{a.totalSpent}h</td>
 									</tr>
@@ -531,20 +524,18 @@
 							<TextField id="edit-cost" type="number" bind:value={editForm.hourCost} />
 						</div>
 						<div class="space-y-1">
-							<label class="text-sm font-medium text-ds-text-secondary" for="edit-rsvp-cost">RSVP Cost (hours)</label>
-							<TextField id="edit-rsvp-cost" type="number" placeholder="Leave blank for free / no RSVP flow" bind:value={editForm.rsvpCost} />
-							<label class="flex items-center gap-2 pt-1 text-xs text-ds-text-secondary" class:opacity-50={editForm.rsvpCost === ''}>
-								<Checkbox bind:checked={editForm.rsvpEnabled} disabled={editForm.rsvpCost === ''} />
-								RSVPs open for purchase
-							</label>
+							<label class="text-sm font-medium text-ds-text-secondary" for="edit-ticket-threshold">Ticket Threshold (approved hours)</label>
+							<TextField id="edit-ticket-threshold" type="number" placeholder="Leave blank for no eligibility gate" bind:value={editForm.ticketThreshold} />
+							<p class="pt-1 text-xs text-ds-text-secondary">Users must have at least this many approved hours before they can buy.</p>
 						</div>
 						<div class="space-y-1">
-							<label class="text-sm font-medium text-ds-text-secondary" for="edit-ticket-cost">Full Ticket Cost (hours)</label>
-							<TextField id="edit-ticket-cost" type="number" placeholder="Leave blank for RSVP-only" bind:value={editForm.ticketCost} />
+							<label class="text-sm font-medium text-ds-text-secondary" for="edit-ticket-cost">Ticket Cost (hours)</label>
+							<TextField id="edit-ticket-cost" type="number" placeholder="Leave blank to disable ticket purchase" bind:value={editForm.ticketCost} />
 							<label class="flex items-center gap-2 pt-1 text-xs text-ds-text-secondary" class:opacity-50={editForm.ticketCost === ''}>
 								<Checkbox bind:checked={editForm.ticketEnabled} disabled={editForm.ticketCost === ''} />
 								Tickets open for purchase
 							</label>
+							<p class="text-xs text-ds-text-secondary">Deducted in full on purchase — balance is allowed to go negative.</p>
 						</div>
 						<div class="flex items-center gap-2 pt-6">
 							<Checkbox id="edit-active" bind:checked={editForm.isActive} />

@@ -59,16 +59,12 @@ export class UpdateEventDto {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  rsvpCost?: number | null;
+  ticketThreshold?: number | null;
 
   @IsNumber()
   @Min(0)
   @IsOptional()
   ticketCost?: number | null;
-
-  @IsBoolean()
-  @IsOptional()
-  rsvpEnabled?: boolean;
 
   @IsBoolean()
   @IsOptional()
