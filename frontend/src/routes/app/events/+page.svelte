@@ -59,7 +59,7 @@
 	// Confirmation modal — activated when the user picks "Buy Ticket". The user
 	// must type REQUIRED_PHRASE verbatim before the Purchase button enables.
 	const REQUIRED_PHRASE =
-		'I understand that by purchasing an RSVP I must complete the requirements for an invite by the event date to receive prizes for my logged hours and to be allowed entry, regardless of my travel arrangements.';
+		'I understand that by purchasing an ticket I must complete the requirements for an invite by the event date to receive prizes for my logged hours and to be allowed entry, regardless of my travel arrangements.';
 	let showConfirmModal = $state(false);
 	let confirmText = $state('');
 	const phraseMatches = $derived(confirmText.trim() === REQUIRED_PHRASE);
@@ -550,7 +550,7 @@
 				</p>
 				<ul class="list-disc pl-6 flex flex-col gap-2">
 					<li class="font-bricolage text-[15px] text-black m-0 leading-snug">
-						I understand that by purchasing an RSVP, if I do not complete the requirements for an invite (30 approved hours) by the event date, I will not be able to participate further in Horizons and use my hours to redeem prizes.
+						I understand that by purchasing a ticket, if I do not complete the requirements for an invite (30 approved hours) by the event date, I will not be able to participate further in Horizons and use my hours to redeem prizes.
 					</li>
 					<li class="font-bricolage text-[15px] text-black m-0 leading-snug">
 						I understand that I will not be allowed in to the event if I do not complete the requirements for an invite even if I already paid for a flight &amp; show up.
