@@ -2693,6 +2693,10 @@ export interface components {
             /** Format: date-time */
             endDate: string;
             hourCost: number;
+            rsvpCost?: number | null;
+            ticketCost?: number | null;
+            rsvpEnabled: boolean;
+            ticketEnabled: boolean;
             isActive: boolean;
         };
         EventStatsPinnedTimelineEntry: {
