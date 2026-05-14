@@ -18,10 +18,22 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
-      exception instanceof HttpException
-        ? exception.message
-        : 'Internal server error';
+    let message: string | string[] = 'Internal server error';
+    if (exception instanceof HttpException) {
+      const res = exception.getResponse();
+      if (typeof res === 'string') {
+        message = res;
+      } else if (res && typeof res === 'object' && 'message' in res) {
+        const m = (res as { message: unknown }).message;
+        if (typeof m === 'string' || Array.isArray(m)) {
+          message = m as string | string[];
+        } else {
+          message = exception.message;
+        }
+      } else {
+        message = exception.message;
+      }
+    }
 
     console.error('Exception caught:', exception);
 
