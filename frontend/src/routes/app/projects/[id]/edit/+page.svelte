@@ -13,6 +13,15 @@
 
 	type ProjectType = components['schemas']['CreateProjectDto']['projectType'];
 
+	function extractApiError(err: unknown, fallback: string): string {
+		if (!err || typeof err !== 'object') return fallback;
+		const e = err as { error?: unknown; message?: unknown };
+		const raw = e.error ?? e.message;
+		if (Array.isArray(raw)) return raw.filter(Boolean).join(', ') || fallback;
+		if (typeof raw === 'string' && raw.trim()) return raw;
+		return fallback;
+	}
+
 	const projectTypes = [
 		{ label: 'Windows Playable', value: 'windows_playable' },
 		{ label: 'Mac Playable', value: 'mac_playable' },
@@ -403,11 +412,9 @@
 			invalidateCache();
 			goto(`/app/projects/${projectId}`);
 		} else if (!projectRes.data) {
-			const err = projectRes.error as any;
-			errorMsg = err?.message ?? err?.error ?? 'Failed to update project. Please try again.';
+			errorMsg = extractApiError(projectRes.error, 'Failed to update project. Please try again.');
 		} else {
-			const err = hackatimeRes.error as any;
-			errorMsg = err?.message ?? err?.error ?? 'Failed to update Hackatime projects. Please try again.';
+			errorMsg = extractApiError(hackatimeRes.error, 'Failed to update Hackatime projects. Please try again.');
 		}
 
 		submitting = false;
