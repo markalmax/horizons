@@ -61,6 +61,10 @@
 	// Changes needed form fields
 	let changesComment = $state('');
 	let rejectSendEmail = $state(true);
+	let permReject = $state(false);
+	// Internal note written to project.adminComment. Only shown when permReject
+	// is checked — the reject form is otherwise single-textarea.
+	let permRejectInternalNote = $state('');
 
 	// On a reship, surface the implied delta. Hours already credited =
 	// (prior Horizons approved) + (sum of hoursShipped for non-Horizons YSWS
@@ -96,6 +100,8 @@
 		sendEmail = true;
 		changesComment = reviewerApproved ? '' : priorUserFeedback ?? '';
 		rejectSendEmail = true;
+		permReject = false;
+		permRejectInternalNote = '';
 		justSubmitted = false;
 	});
 
@@ -143,18 +149,33 @@
 			return;
 		}
 
+		if (permReject) {
+			const confirmed = window.confirm(
+				'Permanently reject this project? The user will see your reason and will NOT be able to resubmit or edit the project. This is final.',
+			);
+			if (!confirmed) return;
+		}
+
 		submitting = true;
 		try {
+			const internalNote = permRejectInternalNote.trim();
 			const { error } = await api.PUT('/api/reviewer/submissions/{id}/review', {
 				params: { path: { id: submissionId } },
 				body: {
 					approvalStatus: 'rejected',
 					userFeedback: changesComment,
 					sendEmail: rejectSendEmail,
-				},
+					...(permReject
+						? {
+								permReject: true,
+								...(internalNote ? { adminComment: internalNote } : {}),
+							}
+						: {}),
+				} as any,
 			});
-			if (error) throw new Error(`Failed to reject submission ${submissionId}`);
-			toast.success('Changes requested');
+			if (error)
+				throw new Error(`Failed to reject submission ${submissionId}`);
+			toast.success(permReject ? 'Project permanently rejected' : 'Changes requested');
 			justSubmitted = true;
 			onReviewComplete(false);
 		} catch (error) {
@@ -345,6 +366,28 @@
 					Send email notification to user
 				</label>
 			</div>
+			<div class="mb-3 rounded-md border {permReject ? 'border-rv-red bg-rv-red/10' : 'border-rv-border'} p-2.5 space-y-2">
+				<label class="flex items-start gap-1.5 text-xs text-rv-text cursor-pointer">
+					<input type="checkbox" bind:checked={permReject} class="accent-rv-red mt-0.5" />
+					<span>
+						<span class="font-semibold text-rv-red">Permanently reject</span>
+						<span class="text-rv-dim"> — user cannot resubmit or edit the project. The reason above is shown to them as final.</span>
+					</span>
+				</label>
+				{#if permReject}
+					<label class="block">
+						<span class="block text-[11px] uppercase tracking-wide text-rv-dim mb-1">
+							Internal note <span class="normal-case font-normal opacity-80 italic">(admin-only)</span>
+						</span>
+						<textarea
+							bind:value={permRejectInternalNote}
+							maxlength={1000}
+							placeholder="Why this is being perm-rejected — context for future admins reviewing this project."
+							class="w-full bg-rv-surface border border-rv-border rounded-md p-2.5 text-rv-text font-inherit text-[13px] resize-vertical min-h-[60px] focus:outline-none focus:border-rv-accent"
+						></textarea>
+					</label>
+				{/if}
+			</div>
 			<div class="flex gap-2 justify-end items-center">
 				{#if draftSavedFlash}
 					<span class="text-[11px] text-rv-green mr-1">Draft saved</span>
@@ -361,7 +404,7 @@
 					onclick={submitChangesNeeded}
 					disabled={submitting || savingDraft || justSubmitted || readOnly}
 				>
-					{submitting ? 'Submitting...' : justSubmitted ? 'Submitted' : 'Request Changes'}
+					{submitting ? 'Submitting...' : justSubmitted ? 'Submitted' : permReject ? 'Permanently Reject' : 'Request Changes'}
 				</button>
 			</div>
 		</div>

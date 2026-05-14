@@ -55,6 +55,8 @@ import {
   ProjectOwnerHackatimeProjectsResponse,
   FraudQueueResponse,
   LedgerResponse,
+  FraudReviewQueueResponse,
+  PermRejectActionResponse,
 } from './dto/admin-response.dto';
 import {
   ToggleFraudFlagDto,
@@ -62,6 +64,7 @@ import {
   UpdateSlackIdDto,
   ToggleSubmissionsFrozenDto,
   UpdateUserRoleDto,
+  PermRejectProjectDto,
 } from './dto/admin-request.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateAdminProjectDto } from './dto/update-admin-project.dto';
@@ -133,8 +136,9 @@ export class AdminController {
   async updateProject(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateAdminProjectDto,
+    @Req() req: Request,
   ) {
-    return this.adminService.updateProject(id, body);
+    return this.adminService.updateProject(id, body, req.user.userId);
   }
 
   @Get('projects/:id/hackatime-projects')
@@ -193,6 +197,26 @@ export class AdminController {
   @ApiOkResponse({ type: FraudQueueResponse })
   async getFraudQueue() {
     return this.adminService.getFraudQueue();
+  }
+
+  @Get('fraud-review/queue')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Admin)
+  @ApiOkResponse({ type: FraudReviewQueueResponse })
+  async getFraudReviewQueue() {
+    return this.adminService.getFraudReviewQueue();
+  }
+
+  @Post('fraud-review/:projectId/perm-reject')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Admin)
+  @ApiCreatedResponse({ type: PermRejectActionResponse })
+  async permRejectProject(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: PermRejectProjectDto,
+    @Req() req: Request,
+  ) {
+    return this.adminService.permRejectProject(projectId, req.user.userId, dto);
   }
 
   @Get('stats')

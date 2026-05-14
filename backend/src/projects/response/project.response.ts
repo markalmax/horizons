@@ -85,6 +85,12 @@ export class ProjectResponse {
   @ApiProperty({ description: 'Whether the project is locked for editing' })
   isLocked: boolean;
 
+  @ApiProperty({
+    description:
+      'True if an admin has permanently rejected this project. Blocks all further submissions and edits; the user-facing reason lives on the latest submission as `hoursJustification`.',
+  })
+  permReject: boolean;
+
   @ApiProperty({ description: 'Creation timestamp' })
   createdAt: string;
 

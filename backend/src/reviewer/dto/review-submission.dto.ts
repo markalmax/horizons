@@ -38,6 +38,13 @@ export class ReviewSubmissionDto {
   @IsBoolean()
   @IsOptional()
   sendEmail?: boolean; // Only sends email when explicitly true
+
+  // When true AND approvalStatus === 'rejected', mark the project permanently
+  // rejected. The user sees the rejection reason and can no longer resubmit or
+  // edit the project. `userFeedback` is reused as the user-facing reason.
+  @IsBoolean()
+  @IsOptional()
+  permReject?: boolean;
 }
 
 export class QuickApproveDto {
