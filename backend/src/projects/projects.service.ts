@@ -347,6 +347,12 @@ export class ProjectsService {
       throw new ForbiddenException('Access denied');
     }
 
+    if (project.permReject) {
+      throw new ForbiddenException(
+        'This project has been permanently rejected. See your project page for the reviewer feedback.',
+      );
+    }
+
     // Check if submissions are globally frozen
     const globalSettings = await this.prisma.globalSettings.findUnique({
       where: { id: 'global' },
@@ -650,6 +656,12 @@ export class ProjectsService {
       throw new ForbiddenException('Access denied');
     }
 
+    if (project.permReject) {
+      throw new ForbiddenException(
+        'This project has been permanently rejected. See your project page for the reviewer feedback.',
+      );
+    }
+
     const updateData: any = {};
     if (updateProjectDto.projectTitle !== undefined) {
       updateData.projectTitle = updateProjectDto.projectTitle;
@@ -723,6 +735,12 @@ export class ProjectsService {
 
     if (project.userId !== userId) {
       throw new ForbiddenException('Access denied');
+    }
+
+    if (project.permReject) {
+      throw new ForbiddenException(
+        'This project has been permanently rejected. See your project page for the reviewer feedback.',
+      );
     }
 
     if (!project.user.hackatimeAccount) {

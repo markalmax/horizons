@@ -1,5 +1,12 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsString, IsOptional, IsIn } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsBoolean,
+  IsString,
+  IsOptional,
+  IsIn,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 
 export class ToggleFraudFlagDto {
   @ApiProperty()
@@ -31,4 +38,34 @@ export class UpdateUserRoleDto {
   @IsString()
   @IsIn(['user', 'admin', 'reviewer', 'event_viewer'])
   role: 'user' | 'admin' | 'reviewer' | 'event_viewer';
+}
+
+export class PermRejectProjectDto {
+  @ApiProperty({
+    description:
+      'User-facing rejection reason. Shown to the project owner and embedded in the email/Slack DM.',
+    minLength: 1,
+    maxLength: 1000,
+  })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  reason: string;
+
+  @ApiPropertyOptional({
+    description: 'Internal-only note for future admin context. Not shown to the user.',
+    maxLength: 1000,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  internalNote?: string;
+
+  @ApiPropertyOptional({
+    description: 'Send Loops email + Slack DM to the owner (default true).',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  sendEmail?: boolean;
 }

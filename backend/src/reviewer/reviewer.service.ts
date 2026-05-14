@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import {
   ReviewSubmissionDto,
@@ -487,6 +491,37 @@ export class ReviewerService {
         );
       }
       // If already rejected, no edit path — reviewer decision is a no-op.
+
+      // Permanent rejection. Only valid alongside a 'rejected' verdict — the
+      // user-facing reason is `userFeedback`, which is already persisted to
+      // submission.hoursJustification via the field-update block above. We only
+      // need to flip the project flag here; audit log already records the
+      // review action with newStatus=rejected, and we add a perm_reject entry
+      // so it shows up in audit filters.
+      if (dto.permReject && dto.approvalStatus === 'rejected') {
+        const reason = (dto.userFeedback ?? '').trim();
+        if (!reason) {
+          throw new BadRequestException(
+            'permReject requires a userFeedback reason',
+          );
+        }
+        const projectIdRow = await this.prisma.submission.findUniqueOrThrow({
+          where: { submissionId },
+          select: { projectId: true },
+        });
+        await this.prisma.project.update({
+          where: { projectId: projectIdRow.projectId },
+          data: { permReject: true },
+        });
+        await this.prisma.submissionAuditLog.create({
+          data: {
+            submissionId,
+            adminId: reviewerId,
+            action: AUDIT_ACTIONS.permReject,
+            changes: { reason } as any,
+          },
+        });
+      }
 
       // Verdict submitted — release the claim so the next reviewer can pick
       // up another project without waiting for the stale timeout.

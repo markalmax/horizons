@@ -92,4 +92,12 @@ export class UpdateAdminProjectDto {
   @IsBoolean()
   @IsOptional()
   isLocked?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Permanently reject (or un-reject) the project. Enabling requires the latest submission to already have a user-visible reason in `hoursJustification`. Audit (who/when) is recorded in SubmissionAuditLog.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  permReject?: boolean;
 }

@@ -11,6 +11,8 @@ import { MetricsService } from '../metrics/metrics.service';
 import { FraudReviewService } from '../fraud-review/fraud-review.service';
 import { StreakService } from '../streaks/streak.service';
 import { HackatimeService } from '../hackatime/hackatime.service';
+import { LoopsService } from '../loops/loops.service';
+import { AUDIT_ACTIONS } from '../submission-approval/audit-actions';
 import * as Papa from 'papaparse';
 
 const projectAdminInclude = {
@@ -53,6 +55,7 @@ export class AdminService {
     private fraudReviewService: FraudReviewService,
     private streakService: StreakService,
     private hackatimeService: HackatimeService,
+    private loopsService: LoopsService,
   ) {}
 
   async getAllSubmissions() {
@@ -160,7 +163,9 @@ export class AdminService {
       hoursJustification?: string | null;
       approvedHours?: number | null;
       isLocked?: boolean;
+      permReject?: boolean;
     },
+    adminUserId?: number,
   ) {
     const existing = await this.prisma.project.findUnique({
       where: { projectId },
@@ -168,6 +173,12 @@ export class AdminService {
         projectId: true,
         nowHackatimeProjects: true,
         repoUrl: true,
+        permReject: true,
+        submissions: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { submissionId: true, hoursJustification: true },
+        },
       },
     });
 
@@ -197,6 +208,27 @@ export class AdminService {
       }
     }
 
+    // Perm-reject toggle. Just a boolean — the user-visible reason already
+    // lives on the latest submission's hoursJustification (set during review or
+    // by the secondary fraud-review flow). Enabling requires that reason to be
+    // present so users aren't told "permanently rejected" with no explanation.
+    let permRejectAuditAction: 'perm_reject' | 'perm_reject_cleared' | null = null;
+    if (dto.permReject !== undefined && dto.permReject !== existing.permReject) {
+      if (dto.permReject === true) {
+        const latest = existing.submissions[0];
+        const latestReason = latest?.hoursJustification?.trim();
+        if (!latest || !latestReason) {
+          throw new BadRequestException(
+            'Cannot enable permReject: the latest submission has no user-visible reason. Set reviewer feedback on the submission first (via the review page or fraud-review flow).',
+          );
+        }
+        permRejectAuditAction = AUDIT_ACTIONS.permReject;
+      } else {
+        permRejectAuditAction = AUDIT_ACTIONS.permRejectCleared;
+      }
+      data.permReject = dto.permReject;
+    }
+
     let hackatimeProjectsChanged = false;
     if (dto.nowHackatimeProjects !== undefined) {
       const next = Array.from(
@@ -215,6 +247,17 @@ export class AdminService {
       where: { projectId },
       data,
     });
+
+    if (permRejectAuditAction && existing.submissions[0]) {
+      await this.prisma.submissionAuditLog.create({
+        data: {
+          submissionId: existing.submissions[0].submissionId,
+          adminId: adminUserId ?? null,
+          action: permRejectAuditAction,
+          changes: {} as any,
+        },
+      });
+    }
 
     if (hackatimeProjectsChanged) {
       try {
@@ -2780,4 +2823,262 @@ export class AdminService {
 
     return { entries, summary };
   }
+
+  // ---------------------------------------------------------------------------
+  // Secondary fraud review (perm-reject)
+  //
+  // Joe's "silent reject" path leaves the user looking at a permanent "pending"
+  // — a deliberate cloak so fraud actors don't learn they've been caught. The
+  // downside is good-faith users stranded with no answer. This queue lets an
+  // admin convert a silent reject into a *permanent* reject: the rejection
+  // reason is surfaced to the user, the project can no longer be resubmitted or
+  // edited, and we send the normal denial email + Slack DM.
+  // ---------------------------------------------------------------------------
+
+  private static FRAUD_REVIEW_PROJECT_SELECT = {
+    projectId: true,
+    projectTitle: true,
+    projectType: true,
+    description: true,
+    repoUrl: true,
+    playableUrl: true,
+    screenshotUrl: true,
+    nowHackatimeHours: true,
+    nowHackatimeProjects: true,
+    createdAt: true,
+    updatedAt: true,
+    joeFraudReviewedAt: true,
+    joeTrustScore: true,
+    joeJustification: true,
+    joeOutcomeStatus: true,
+    joeOutcomeReason: true,
+    permReject: true,
+    user: {
+      select: {
+        userId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        slackUserId: true,
+        isFraud: true,
+        isSus: true,
+      },
+    },
+    submissions: {
+      orderBy: { createdAt: 'desc' as const },
+      select: {
+        submissionId: true,
+        createdAt: true,
+        // hoursJustification is the user-visible perm-reject reason.
+        hoursJustification: true,
+      },
+    },
+  } as const;
+
+  private shapeFraudReviewProject(
+    p: any,
+  ): {
+    projectId: number;
+    projectTitle: string;
+    projectType: string;
+    description: string | null;
+    repoUrl: string | null;
+    playableUrl: string | null;
+    screenshotUrl: string | null;
+    nowHackatimeHours: number | null;
+    nowHackatimeProjects: string[];
+    createdAt: Date;
+    updatedAt: Date;
+    latestSubmissionCreatedAt: Date | null;
+    submissionCount: number;
+    joeFraudReviewedAt: Date | null;
+    joeTrustScore: number | null;
+    joeJustification: string | null;
+    joeOutcomeStatus: string | null;
+    joeOutcomeReason: string | null;
+    permReject: boolean;
+    // The reason shown to the user. Pulled from the latest submission's
+    // hoursJustification so we reuse the existing reviewer-feedback path.
+    permRejectReason: string | null;
+    user: {
+      userId: number;
+      firstName: string | null;
+      lastName: string | null;
+      email: string;
+      slackUserId: string | null;
+      isFraud: boolean;
+      isSus: boolean;
+    };
+  } {
+    const latest = p.submissions[0] ?? null;
+    return {
+      projectId: p.projectId,
+      projectTitle: p.projectTitle,
+      projectType: p.projectType,
+      description: p.description,
+      repoUrl: p.repoUrl,
+      playableUrl: p.playableUrl,
+      screenshotUrl: p.screenshotUrl,
+      nowHackatimeHours: p.nowHackatimeHours,
+      nowHackatimeProjects: p.nowHackatimeProjects ?? [],
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      latestSubmissionCreatedAt: latest?.createdAt ?? null,
+      submissionCount: p.submissions.length,
+      joeFraudReviewedAt: p.joeFraudReviewedAt,
+      joeTrustScore: p.joeTrustScore,
+      joeJustification: p.joeJustification,
+      joeOutcomeStatus: p.joeOutcomeStatus,
+      joeOutcomeReason: p.joeOutcomeReason,
+      permReject: p.permReject,
+      permRejectReason: latest?.hoursJustification ?? null,
+      user: p.user,
+    };
+  }
+
+  async getFraudReviewQueue() {
+    const projects = await this.prisma.project.findMany({
+      where: {
+        deletedAt: null,
+        // Only projects Joe explicitly auto-rejected are candidates for
+        // permanent rejection by a human.
+        joeFraudPassed: false,
+      },
+      select: AdminService.FRAUD_REVIEW_PROJECT_SELECT,
+    });
+
+    const shaped = projects.map((p) => this.shapeFraudReviewProject(p));
+
+    const pendingPermReject = shaped
+      .filter((p) => !p.permReject)
+      .sort((a, b) => {
+        const aT = a.joeFraudReviewedAt?.getTime() ?? 0;
+        const bT = b.joeFraudReviewedAt?.getTime() ?? 0;
+        return bT - aT;
+      });
+
+    const permRejected = shaped
+      .filter((p) => p.permReject)
+      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+    return { pendingPermReject, permRejected };
+  }
+
+  async permRejectProject(
+    projectId: number,
+    adminUserId: number,
+    dto: { reason: string; internalNote?: string; sendEmail?: boolean },
+  ) {
+    const reason = dto.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('reason is required');
+    }
+    const internalNote = dto.internalNote?.trim() ?? '';
+
+    const project = await this.prisma.project.findUnique({
+      where: { projectId },
+      select: {
+        projectId: true,
+        deletedAt: true,
+        permReject: true,
+        submissions: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { submissionId: true },
+        },
+      },
+    });
+    if (!project || project.deletedAt) {
+      throw new NotFoundException('Project not found');
+    }
+    if (project.permReject) {
+      throw new BadRequestException(
+        'Project is already permanently rejected. Clear the flag on the admin project edit page first.',
+      );
+    }
+    const latestSubmission = project.submissions[0];
+    if (!latestSubmission) {
+      throw new BadRequestException(
+        'Project has no submission yet — nothing to reject permanently.',
+      );
+    }
+
+    // Reason lives on the latest submission's hoursJustification — the same
+    // channel users already read for reviewer feedback. Internal note goes
+    // on project.adminComment. Audit log captures who/when.
+    await this.prisma.$transaction([
+      this.prisma.project.update({
+        where: { projectId },
+        data: {
+          permReject: true,
+          ...(internalNote ? { adminComment: internalNote } : {}),
+        },
+      }),
+      this.prisma.submission.update({
+        where: { submissionId: latestSubmission.submissionId },
+        data: { hoursJustification: reason },
+      }),
+      this.prisma.submissionAuditLog.create({
+        data: {
+          submissionId: latestSubmission.submissionId,
+          adminId: adminUserId,
+          action: AUDIT_ACTIONS.permReject,
+          changes: {
+            reason,
+            ...(internalNote ? { internalNote } : {}),
+          } as any,
+        },
+      }),
+    ]);
+
+    const updated = await this.prisma.project.findUniqueOrThrow({
+      where: { projectId },
+      select: AdminService.FRAUD_REVIEW_PROJECT_SELECT,
+    });
+
+    const sendEmail = dto.sendEmail ?? true;
+    let emailSent = false;
+    let slackSent = false;
+
+    if (sendEmail) {
+      try {
+        const emailResult = await this.loopsService.sendSubmissionReviewEmail(
+          updated.user.email,
+          {
+            projectTitle: updated.projectTitle,
+            projectId: updated.projectId,
+            approved: false,
+            feedback: reason,
+          },
+          { idempotencyKey: `perm-reject-${updated.projectId}` },
+        );
+        emailSent = emailResult.success;
+      } catch (e) {
+        console.error('[perm-reject] Loops dispatch failed', e);
+      }
+
+      try {
+        const slackResult = await this.slackService.notifySubmissionReview(
+          updated.user.email,
+          {
+            projectTitle: updated.projectTitle,
+            projectId: updated.projectId,
+            approved: false,
+            feedback: reason,
+          },
+        );
+        slackSent = slackResult.success;
+      } catch (e) {
+        console.error('[perm-reject] Slack dispatch failed', e);
+      }
+    }
+
+    return {
+      success: true,
+      project: this.shapeFraudReviewProject(updated),
+      emailSent,
+      slackSent,
+    };
+  }
+
 }

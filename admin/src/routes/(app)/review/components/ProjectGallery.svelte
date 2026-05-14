@@ -256,6 +256,12 @@
 				>
 					Fraud Queue
 				</a>
+				<a
+					href="/admin/review/fraud-review"
+					class="py-1.5 px-3.5 rounded-md border border-rv-border bg-rv-surface2 text-rv-dim text-[12px] font-inherit no-underline inline-block cursor-pointer transition-all duration-150 hover:border-rv-accent hover:text-rv-text"
+				>
+					Fraud Review
+				</a>
 			{/if}
 			<button
 				class="py-1.5 px-3.5 rounded-md border border-rv-border bg-rv-surface2 text-rv-dim text-[12px] font-inherit cursor-pointer transition-all duration-150 hover:border-rv-accent hover:text-rv-text disabled:opacity-40 disabled:cursor-not-allowed"

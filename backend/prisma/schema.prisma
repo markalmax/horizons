@@ -119,6 +119,11 @@ model Project {
   joeOutcomeStatus     String?      @map("joe_outcome_status")
   joeOutcomeReason     String?      @map("joe_outcome_reason") @db.Text
   joeOutcomeRecordedAt DateTime?    @map("joe_outcome_recorded_at")
+  // Secondary fraud review: when true, the project is permanently rejected and
+  // all further submissions / edits are blocked. The user-facing reason is the
+  // latest submission's hoursJustification (the existing reviewer-feedback
+  // field); audit (who/when) lives in SubmissionAuditLog.
+  permReject           Boolean      @default(false) @map("perm_reject")
   // Soft delete: set when the owner deletes the project. The row is preserved
   // for audit (fraud history, hour math reconciliation) but every list/stat
   // query filters it out, and its Hackatime project links no longer block

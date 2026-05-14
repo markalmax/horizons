@@ -129,6 +129,7 @@
     let hoursJustificationEdit = $state('');
     let approvedHoursText = $state('');
     let isLocked = $state(false);
+    let permReject = $state(false);
     let linkedProjects = $state<string[]>([]);
 
     // --- Hackatime attach UI ---
@@ -215,6 +216,7 @@
         approvedHoursText =
             p.approvedHours === null || p.approvedHours === undefined ? '' : String(p.approvedHours);
         isLocked = p.isLocked ?? false;
+        permReject = (p as typeof p & { permReject?: boolean }).permReject ?? false;
         linkedProjects = [...(p.nowHackatimeProjects ?? [])];
     }
 
@@ -569,7 +571,7 @@
             approvedHours = parsed;
         }
 
-        const body: UpdateAdminProjectDto = {
+        const body: UpdateAdminProjectDto & { permReject?: boolean } = {
             projectTitle: projectTitle.trim(),
             projectType,
             description: description.trim() || null,
@@ -582,6 +584,7 @@
             hoursJustification: hoursJustificationEdit.trim() || null,
             nowHackatimeProjects: linkedProjects,
             isLocked,
+            permReject,
             approvedHours,
         };
 
@@ -1105,6 +1108,18 @@
                             <label class="flex items-end gap-2 pb-2">
                                 <Checkbox bind:checked={isLocked} />
                                 <span class="text-sm text-ds-text-secondary">Lock project (prevents owner edits)</span>
+                            </label>
+                        </div>
+
+                        <div class="space-y-1 rounded-md border {permReject ? 'border-red-500/60 bg-red-500/5' : 'border-ds-border'} p-3">
+                            <label class="flex items-start gap-2">
+                                <Checkbox bind:checked={permReject} />
+                                <span class="text-sm">
+                                    <span class="font-semibold text-red-600 dark:text-red-400">Permanently reject project</span>
+                                    <span class="block text-xs text-ds-text-secondary">
+                                        User cannot resubmit or edit. The reason shown to the user is the latest submission's reviewer feedback — set it via the review page or the fraud-review flow before enabling. Untick to lift the perm-reject; this is the only undo path.
+                                    </span>
+                                </span>
                             </label>
                         </div>
 

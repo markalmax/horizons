@@ -228,6 +228,12 @@ export class AdminProjectResponse {
   @ApiProperty()
   isLocked: boolean;
 
+  @ApiProperty({
+    description:
+      'Permanent reject flag. User-facing reason is the latest submission\'s `hoursJustification`; audit (who/when) is in SubmissionAuditLog.',
+  })
+  permReject: boolean;
+
   @ApiProperty({ type: Boolean, nullable: true })
   joeFraudPassed: boolean | null;
 
@@ -1482,4 +1488,126 @@ export class LedgerResponse {
 
   @ApiProperty({ type: LedgerSummaryResponse })
   summary: LedgerSummaryResponse;
+}
+
+class FraudReviewQueueUserResponse {
+  @ApiProperty()
+  userId: number;
+
+  @ApiProperty({ type: String, nullable: true })
+  firstName: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  lastName: string | null;
+
+  @ApiProperty()
+  email: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  slackUserId: string | null;
+
+  @ApiProperty()
+  isFraud: boolean;
+
+  @ApiProperty()
+  isSus: boolean;
+}
+
+export class FraudReviewQueueItemResponse {
+  @ApiProperty()
+  projectId: number;
+
+  @ApiProperty()
+  projectTitle: string;
+
+  @ApiProperty()
+  projectType: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  description: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  repoUrl: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  playableUrl: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  screenshotUrl: string | null;
+
+  @ApiProperty({ type: Number, nullable: true })
+  nowHackatimeHours: number | null;
+
+  @ApiProperty({ type: [String] })
+  nowHackatimeProjects: string[];
+
+  @ApiProperty()
+  createdAt: Date;
+
+  @ApiProperty()
+  updatedAt: Date;
+
+  @ApiProperty({ type: String, nullable: true, format: 'date-time' })
+  latestSubmissionCreatedAt: Date | null;
+
+  @ApiProperty()
+  submissionCount: number;
+
+  // Joe context ----
+  @ApiProperty({ type: String, nullable: true, format: 'date-time' })
+  joeFraudReviewedAt: Date | null;
+
+  @ApiProperty({ type: Number, nullable: true })
+  joeTrustScore: number | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  joeJustification: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  joeOutcomeStatus: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  joeOutcomeReason: string | null;
+
+  // Perm-reject state ----
+  @ApiProperty()
+  permReject: boolean;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      "User-facing reason (mirrors latest submission's hoursJustification).",
+  })
+  permRejectReason: string | null;
+
+  @ApiProperty({ type: FraudReviewQueueUserResponse })
+  user: FraudReviewQueueUserResponse;
+}
+
+export class FraudReviewQueueResponse {
+  // Silently-rejected projects awaiting a permanent-reject decision.
+  // (joeFraudPassed = false AND permReject = false)
+  @ApiProperty({ type: [FraudReviewQueueItemResponse] })
+  pendingPermReject: FraudReviewQueueItemResponse[];
+
+  // Projects an admin has already perm-rejected (audit / restore).
+  @ApiProperty({ type: [FraudReviewQueueItemResponse] })
+  permRejected: FraudReviewQueueItemResponse[];
+}
+
+export class PermRejectActionResponse {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty({ type: FraudReviewQueueItemResponse })
+  project: FraudReviewQueueItemResponse;
+
+  @ApiProperty({
+    description: 'True if a Loops email was successfully dispatched.',
+  })
+  emailSent: boolean;
+
+  @ApiProperty({ description: 'True if a Slack DM was successfully dispatched.' })
+  slackSent: boolean;
 }
