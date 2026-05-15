@@ -3081,4 +3081,100 @@ export class AdminService {
     };
   }
 
+  /**
+   * Reset all Joe fraud-review state on a project, clear permReject + silentReject,
+   * and resubmit to Joe with a fresh dedup key so it gets a brand-new review.
+   * Audit-logged against the latest submission.
+   */
+  async resetJoeAndRequeue(projectId: number, adminUserId: number) {
+    const project = await this.prisma.project.findUnique({
+      where: { projectId },
+      select: {
+        projectId: true,
+        deletedAt: true,
+        joeProjectId: true,
+        joeFraudPassed: true,
+        joeFraudReviewedAt: true,
+        joeTrustScore: true,
+        joeJustification: true,
+        joeOutcomeStatus: true,
+        joeOutcomeReason: true,
+        joeOutcomeRecordedAt: true,
+        permReject: true,
+        submissions: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+          select: { submissionId: true },
+        },
+      },
+    });
+    if (!project || project.deletedAt) {
+      throw new NotFoundException('Project not found');
+    }
+    const latestSubmission = project.submissions[0];
+    if (!latestSubmission) {
+      throw new BadRequestException(
+        'Project has no submission yet — nothing to requeue.',
+      );
+    }
+
+    const prior = {
+      joeProjectId: project.joeProjectId,
+      joeFraudPassed: project.joeFraudPassed,
+      joeFraudReviewedAt: project.joeFraudReviewedAt,
+      joeTrustScore: project.joeTrustScore,
+      joeJustification: project.joeJustification,
+      joeOutcomeStatus: project.joeOutcomeStatus,
+      joeOutcomeReason: project.joeOutcomeReason,
+      joeOutcomeRecordedAt: project.joeOutcomeRecordedAt,
+      permReject: project.permReject,
+    };
+
+    await this.prisma.$transaction([
+      this.prisma.project.update({
+        where: { projectId },
+        data: {
+          joeProjectId: null,
+          joeFraudPassed: null,
+          joeFraudReviewedAt: null,
+          joeTrustScore: null,
+          joeJustification: null,
+          joeOutcomeStatus: null,
+          joeOutcomeReason: null,
+          joeOutcomeRecordedAt: null,
+          permReject: false,
+        },
+      }),
+      this.prisma.submission.updateMany({
+        where: { projectId, silentReject: true },
+        data: { silentReject: false },
+      }),
+      this.prisma.submissionAuditLog.create({
+        data: {
+          submissionId: latestSubmission.submissionId,
+          adminId: adminUserId,
+          action: AUDIT_ACTIONS.fraudRequeued,
+          changes: { prior } as any,
+        },
+      }),
+    ]);
+
+    // Resubmit immediately with a fresh dedup suffix so Joe re-reviews instead
+    // of returning the cached decision keyed on the (unchanged) submission id.
+    // Fire-and-forget — submitAndPersist swallows errors and audits its own outcome.
+    void this.fraudReviewService.submitAndPersist(projectId, {
+      dedupSuffix: `requeue-${Date.now()}`,
+    });
+
+    const updated = await this.prisma.project.findUniqueOrThrow({
+      where: { projectId },
+      select: AdminService.FRAUD_REVIEW_PROJECT_SELECT,
+    });
+
+    return {
+      success: true,
+      project: this.shapeFraudReviewProject(updated),
+    };
+  }
+
 }

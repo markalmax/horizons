@@ -132,6 +132,33 @@
 		modalInternalNote = '';
 	}
 
+	let requeuingProjectId = $state<number | null>(null);
+
+	async function resetJoeAndRequeue(p: FraudReviewItem) {
+		if (
+			!window.confirm(
+				`Reset Joe state for "${p.projectTitle}", clear perm-reject and silent-reject, and resubmit to the fraud queue?`,
+			)
+		) {
+			return;
+		}
+		requeuingProjectId = p.projectId;
+		try {
+			const { error: err } = await (api as any).POST(
+				'/api/admin/projects/{id}/joe-reset',
+				{ params: { path: { id: p.projectId } } },
+			);
+			if (err) {
+				toast.error('Failed to reset Joe state.');
+				return;
+			}
+			toast.success('Joe state reset — project re-enqueued for fraud review');
+			await load();
+		} finally {
+			requeuingProjectId = null;
+		}
+	}
+
 	async function submitPermReject() {
 		if (!modalProject) return;
 		const reason = modalReason.trim();
@@ -385,6 +412,15 @@
 											Edit metadata to undo →
 										</a>
 									{/if}
+									<button
+										class="rounded-md border border-rv-border bg-rv-surface2 px-3 py-1.5 text-[12px] text-rv-dim hover:border-rv-accent hover:text-rv-text disabled:cursor-not-allowed disabled:opacity-50"
+										onclick={() => resetJoeAndRequeue(p)}
+										disabled={requeuingProjectId === p.projectId}
+									>
+										{requeuingProjectId === p.projectId
+											? 'Resetting…'
+											: 'Reset Joe & requeue'}
+									</button>
 								</div>
 							</div>
 						{/each}

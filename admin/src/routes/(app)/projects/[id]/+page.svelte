@@ -539,6 +539,37 @@
         }
     }
 
+    async function resetJoeAndRequeue() {
+        if (!project) return;
+        if (
+            typeof window !== 'undefined' &&
+            !window.confirm(
+                'Reset Joe state, clear perm-reject and silent-reject flags, and resubmit to the fraud queue?',
+            )
+        ) {
+            return;
+        }
+        projectBusy = true;
+        projectError = '';
+        projectSuccess = '';
+        try {
+            const { error } = await api.POST('/api/admin/projects/{id}/joe-reset', {
+                params: { path: { id: projectId } },
+            });
+            if (error) {
+                projectError = errorMessage(error, 'Failed to reset Joe state');
+                return;
+            }
+            projectSuccess = 'Joe state reset — project re-enqueued for fraud review';
+            await Promise.all([loadProject(), loadSubmissions()]);
+            invalidateTimeline();
+        } catch (e) {
+            projectError = e instanceof Error ? e.message : 'Failed to reset Joe state';
+        } finally {
+            projectBusy = false;
+        }
+    }
+
     // --- Edit form ---
     function toggleLinked(name: string) {
         if (linkedProjects.includes(name)) {
@@ -712,6 +743,16 @@
                     <Button variant="ghost" onclick={recalculate}>Recalculate hours</Button>
                     {#if project.isLocked}
                         <Button variant="ghost" onclick={unlockProject} disabled={projectBusy}>Unlock project</Button>
+                    {/if}
+                    {#if project.joeFraudPassed === false || permReject}
+                        <Button
+                            variant="ghost"
+                            class="border-red-500 text-red-600 hover:bg-red-600/15"
+                            onclick={resetJoeAndRequeue}
+                            disabled={projectBusy}
+                        >
+                            Reset Joe & requeue
+                        </Button>
                     {/if}
                 </div>
 
