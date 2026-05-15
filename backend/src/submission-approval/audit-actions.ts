@@ -6,6 +6,7 @@ export const AUDIT_ACTIONS = {
   fraudEnqueueFailed: 'fraud_enqueue_failed',
   fraudReused: 'fraud_reused',
   fraudResolved: 'fraud_resolved',
+  fraudRequeued: 'fraud_requeued',
   noteUpdate: 'note_update',
   permReject: 'perm_reject',
   permRejectCleared: 'perm_reject_cleared',

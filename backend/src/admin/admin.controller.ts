@@ -57,6 +57,7 @@ import {
   LedgerResponse,
   FraudReviewQueueResponse,
   PermRejectActionResponse,
+  ResetJoeActionResponse,
 } from './dto/admin-response.dto';
 import {
   ToggleFraudFlagDto,
@@ -217,6 +218,17 @@ export class AdminController {
     @Req() req: Request,
   ) {
     return this.adminService.permRejectProject(projectId, req.user.userId, dto);
+  }
+
+  @Post('projects/:id/joe-reset')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Admin)
+  @ApiCreatedResponse({ type: ResetJoeActionResponse })
+  async resetJoeAndRequeue(
+    @Param('id', ParseIntPipe) id: number,
+    @Req() req: Request,
+  ) {
+    return this.adminService.resetJoeAndRequeue(id, req.user.userId);
   }
 
   @Get('stats')

@@ -1611,3 +1611,11 @@ export class PermRejectActionResponse {
   @ApiProperty({ description: 'True if a Slack DM was successfully dispatched.' })
   slackSent: boolean;
 }
+
+export class ResetJoeActionResponse {
+  @ApiProperty()
+  success: boolean;
+
+  @ApiProperty({ type: FraudReviewQueueItemResponse })
+  project: FraudReviewQueueItemResponse;
+}

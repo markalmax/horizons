@@ -789,6 +789,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/projects/{id}/joe-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AdminController_resetJoeAndRequeue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/stats": {
         parameters: {
             query?: never;
@@ -2737,6 +2753,10 @@ export interface components {
             emailSent: boolean;
             /** @description True if a Slack DM was successfully dispatched. */
             slackSent: boolean;
+        };
+        ResetJoeActionResponse: {
+            success: boolean;
+            project: components["schemas"]["FraudReviewQueueItemResponse"];
         };
         StatsFunnelEventEntry: {
             eventId: number;
@@ -5076,6 +5096,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PermRejectActionResponse"];
+                };
+            };
+        };
+    };
+    AdminController_resetJoeAndRequeue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResetJoeActionResponse"];
                 };
             };
         };

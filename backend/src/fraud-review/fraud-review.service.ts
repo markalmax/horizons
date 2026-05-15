@@ -160,8 +160,15 @@ export class FraudReviewService {
   /**
    * Submit a project to fraud review and persist the returned ID on the project row.
    * Fire-and-forget safe: errors are logged but not re-thrown.
+   *
+   * `opts.dedupSuffix` appends to the organizerPlatformId so an admin-triggered
+   * requeue can force Joe to re-review instead of returning the cached decision
+   * keyed on the (unchanged) latest submission id.
    */
-  async submitAndPersist(projectId: number): Promise<void> {
+  async submitAndPersist(
+    projectId: number,
+    opts: { dedupSuffix?: string } = {},
+  ): Promise<void> {
     try {
       const project = await this.prisma.project.findUnique({
         where: { projectId },
@@ -198,7 +205,9 @@ export class FraudReviewService {
           ? { slackId: project.user.slackUserId }
           : { email: project.user.email };
 
-      const organizerPlatformId = `project-${projectId}-submission-${latestSubmissionId}`;
+      const organizerPlatformId = opts.dedupSuffix
+        ? `project-${projectId}-submission-${latestSubmissionId}-${opts.dedupSuffix}`
+        : `project-${projectId}-submission-${latestSubmissionId}`;
       const fraudReviewId = await this.submitProject({
         name: project.projectTitle,
         codeLink: project.repoUrl || '',
