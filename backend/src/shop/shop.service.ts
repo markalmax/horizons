@@ -288,16 +288,17 @@ export class ShopService {
       throw new BadRequestException('This item is no longer available');
     }
 
-    if (item.maxPerUser !== null && item.maxPerUser > 0) {
+    const maxPerUser = item.maxPerUser;
+    if (maxPerUser !== null && maxPerUser > 0) {
       const existingPurchaseCount = await this.prisma.transaction.count({
         where: { userId, itemId },
       });
 
-      if (existingPurchaseCount >= item.maxPerUser) {
+      if (existingPurchaseCount >= maxPerUser) {
         throw new BadRequestException(
-          item.maxPerUser === 1
+          maxPerUser === 1
             ? `You have already purchased this item`
-            : `You have reached the maximum limit of ${item.maxPerUser} for this item`,
+            : `You have reached the maximum limit of ${maxPerUser} for this item`,
         );
       }
     }
@@ -326,29 +327,29 @@ export class ShopService {
       description += ` - ${item.description}`;
     }
 
-    const { balance } = await this.getUserBalance(userId);
-
-    if (balance < cost) {
-      throw new BadRequestException(
-        `Insufficient balance. You have ${balance} hours but this item costs ${cost} hours.`,
-      );
-    }
-
     console.log(
       `[Shop Purchase] Creating transaction for userId: ${userId}, itemId: ${itemId}, cost: ${cost}`,
     );
-    const transaction = await this.prisma.transaction.create({
-      data: {
-        userId,
-        kind: 'ShopItem',
-        itemId,
-        variantId: variant?.variantId || null,
-        itemDescription: description,
-        cost,
-      },
-      include: {
-        item: true,
-        variant: true,
+    const transaction = await this.balanceService.processPurchase({
+      userId,
+      cost,
+      kind: 'ShopItem',
+      itemDescription: description,
+      itemId,
+      variantId: variant?.variantId ?? null,
+      preCheck: async (tx) => {
+        if (maxPerUser !== null && maxPerUser > 0) {
+          const count = await tx.transaction.count({
+            where: { userId, itemId },
+          });
+          if (count >= maxPerUser) {
+            throw new BadRequestException(
+              maxPerUser === 1
+                ? `You have already purchased this item`
+                : `You have reached the maximum limit of ${maxPerUser} for this item`,
+            );
+          }
+        }
       },
     });
 
