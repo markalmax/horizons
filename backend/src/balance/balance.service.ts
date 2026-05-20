@@ -1,5 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '../../generated/prisma/client';
+import { TransactionKind } from '../../generated/prisma/enums';
 import { PrismaService } from '../prisma.service';
 import { debugLog } from '../utils/debug-log';
 
@@ -10,13 +12,15 @@ export class BalanceService {
     private configService: ConfigService,
   ) {}
 
-  async getUserBalance(userId: number) {
-    const totalApprovedHours = await this.prisma.project.aggregate({
+  async getUserBalance(userId: number, client?: Prisma.TransactionClient) {
+    const db = client ?? this.prisma;
+
+    const totalApprovedHours = await db.project.aggregate({
       where: { userId, deletedAt: null },
       _sum: { approvedHours: true },
     });
 
-    const totalSpent = await this.prisma.transaction.aggregate({
+    const totalSpent = await db.transaction.aggregate({
       where: { userId },
       _sum: { cost: true },
     });
@@ -30,6 +34,66 @@ export class BalanceService {
       totalSpent: spent,
       balance,
     };
+  }
+
+  // Atomic spend: row-locks the user, re-checks balance and any caller-supplied
+  // preCheck under the lock, then writes the Transaction. Prevents concurrent
+  // purchases from both passing a stale balance check.
+  async processPurchase(params: {
+    userId: number;
+    cost: number;
+    kind: TransactionKind;
+    itemDescription: string;
+    itemId?: number | null;
+    variantId?: number | null;
+    eventId?: number | null;
+    enforceBalance?: boolean;
+    preCheck?: (tx: Prisma.TransactionClient) => Promise<void>;
+  }) {
+    const {
+      userId,
+      cost,
+      kind,
+      itemDescription,
+      itemId = null,
+      variantId = null,
+      eventId = null,
+      enforceBalance = true,
+      preCheck,
+    } = params;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 FROM users WHERE user_id = ${userId} FOR UPDATE`;
+
+      if (preCheck) {
+        await preCheck(tx);
+      }
+
+      if (enforceBalance) {
+        const { balance } = await this.getUserBalance(userId, tx);
+        if (balance < cost) {
+          throw new BadRequestException(
+            `Insufficient balance. You have ${balance} hours but this costs ${cost} hours.`,
+          );
+        }
+      }
+
+      return tx.transaction.create({
+        data: {
+          userId,
+          kind,
+          itemId,
+          variantId,
+          eventId,
+          itemDescription,
+          cost,
+        },
+        include: {
+          item: true,
+          variant: true,
+        },
+      });
+    });
   }
 
   async verifyEligibility(userId: number, context: string): Promise<void> {
