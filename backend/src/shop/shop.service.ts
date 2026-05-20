@@ -373,74 +373,77 @@ export class ShopService {
       `[Shop Purchase] New balance for userId ${userId}: ${newBalance.balance} hours`,
     );
 
-    let specialAction: string | null = null;
+    const specialAction: string | null = null;
 
-    if (item.itemId === 1) {
-      console.log(
-        '[Midnight Ticket] Processing ticket purchase for user:',
-        userId,
-      );
-      try {
-        const attendApiKey = this.configService.get<string>('ATTEND_API_KEY');
-        console.log('[Midnight Ticket] API Key present:', !!attendApiKey);
-
-        if (!attendApiKey) {
-          console.error('[Midnight Ticket] ATTEND_API_KEY not configured');
-        } else {
-          const user = await this.prisma.user.findUnique({
-            where: { userId },
-            select: { firstName: true, lastName: true, email: true },
-          });
-          debugLog('[Midnight Ticket] User found:', user?.email);
-
-          if (user && user.email) {
-            console.log('[Midnight Ticket] Sending request to attend API...');
-            const response = await fetch(
-              'https://attend.hackclub.com/api/v1/events/80acf8b8-8d7d-4ff6-9311-14edcff613b3/participants',
-              {
-                method: 'POST',
-                headers: {
-                  Authorization: `Bearer ${attendApiKey}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  first_name: user.firstName || 'Midnight',
-                  last_name: user.lastName || 'Attendee',
-                  email: user.email,
-                }),
-              },
-            );
-
-            const responseText = await response.text();
-            console.log(
-              '[Midnight Ticket] API Response status:',
-              response.status,
-            );
-            console.log('[Midnight Ticket] API Response body:', responseText);
-
-            if (response.ok) {
-              specialAction = 'midnight_ticket';
-              console.log(
-                '[Midnight Ticket] Success! specialAction set to midnight_ticket',
-              );
-            } else {
-              console.error(
-                '[Midnight Ticket] API request failed:',
-                response.status,
-                responseText,
-              );
-            }
-          } else {
-            console.error('[Midnight Ticket] User not found or no email');
-          }
-        }
-      } catch (error) {
-        console.error(
-          '[Midnight Ticket] Failed to register participant:',
-          error,
-        );
-      }
-    }
+    // Midnight Ticket attend-API registration: itemId 1 historically pointed
+    // to the Midnight ticket, but now points to travel stipends. Disabled
+    // until/unless a new dedicated item id is wired up.
+    // if (item.itemId === 1) {
+    //   console.log(
+    //     '[Midnight Ticket] Processing ticket purchase for user:',
+    //     userId,
+    //   );
+    //   try {
+    //     const attendApiKey = this.configService.get<string>('ATTEND_API_KEY');
+    //     console.log('[Midnight Ticket] API Key present:', !!attendApiKey);
+    //
+    //     if (!attendApiKey) {
+    //       console.error('[Midnight Ticket] ATTEND_API_KEY not configured');
+    //     } else {
+    //       const user = await this.prisma.user.findUnique({
+    //         where: { userId },
+    //         select: { firstName: true, lastName: true, email: true },
+    //       });
+    //       debugLog('[Midnight Ticket] User found:', user?.email);
+    //
+    //       if (user && user.email) {
+    //         console.log('[Midnight Ticket] Sending request to attend API...');
+    //         const response = await fetch(
+    //           'https://attend.hackclub.com/api/v1/events/80acf8b8-8d7d-4ff6-9311-14edcff613b3/participants',
+    //           {
+    //             method: 'POST',
+    //             headers: {
+    //               Authorization: `Bearer ${attendApiKey}`,
+    //               'Content-Type': 'application/json',
+    //             },
+    //             body: JSON.stringify({
+    //               first_name: user.firstName || 'Midnight',
+    //               last_name: user.lastName || 'Attendee',
+    //               email: user.email,
+    //             }),
+    //           },
+    //         );
+    //
+    //         const responseText = await response.text();
+    //         console.log(
+    //           '[Midnight Ticket] API Response status:',
+    //           response.status,
+    //         );
+    //         console.log('[Midnight Ticket] API Response body:', responseText);
+    //
+    //         if (response.ok) {
+    //           specialAction = 'midnight_ticket';
+    //           console.log(
+    //             '[Midnight Ticket] Success! specialAction set to midnight_ticket',
+    //           );
+    //         } else {
+    //           console.error(
+    //             '[Midnight Ticket] API request failed:',
+    //             response.status,
+    //             responseText,
+    //           );
+    //         }
+    //       } else {
+    //         console.error('[Midnight Ticket] User not found or no email');
+    //       }
+    //     }
+    //   } catch (error) {
+    //     console.error(
+    //       '[Midnight Ticket] Failed to register participant:',
+    //       error,
+    //     );
+    //   }
+    // }
 
     console.log(
       `[Shop Purchase] Purchase completed successfully for userId: ${userId}, transactionId: ${transaction.transactionId}, specialAction: ${specialAction || 'none'}`,
