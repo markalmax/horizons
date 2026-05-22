@@ -190,6 +190,15 @@ export class UserTransactionResponse {
   cost: number;
 
   @ApiProperty()
+  isFulfilled: boolean;
+
+  @ApiProperty({ type: Date, nullable: true })
+  fulfilledAt: Date | null;
+
+  @ApiProperty({ type: Date, nullable: true })
+  refundedAt: Date | null;
+
+  @ApiProperty()
   createdAt: Date;
 
   @ApiProperty({ type: TransactionItemSummary })
@@ -200,15 +209,6 @@ export class UserTransactionResponse {
 }
 
 export class AdminTransactionResponse extends UserTransactionResponse {
-  @ApiProperty()
-  isFulfilled: boolean;
-
-  @ApiProperty({ type: Date, nullable: true })
-  fulfilledAt: Date | null;
-
-  @ApiProperty({ type: Date, nullable: true })
-  refundedAt: Date | null;
-
   @ApiProperty({ type: TransactionUserSummary })
   user: TransactionUserSummary;
 }

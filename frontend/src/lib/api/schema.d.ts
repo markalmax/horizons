@@ -3486,6 +3486,11 @@ export interface components {
             itemId: number;
             variantId: number | null;
             cost: number;
+            isFulfilled: boolean;
+            /** Format: date-time */
+            fulfilledAt: string | null;
+            /** Format: date-time */
+            refundedAt: string | null;
             /** Format: date-time */
             createdAt: string;
             item: components["schemas"]["TransactionItemSummary"];
@@ -3581,13 +3586,15 @@ export interface components {
             itemId: number;
             variantId: number | null;
             cost: number;
+            isFulfilled: boolean;
+            /** Format: date-time */
+            fulfilledAt: string | null;
+            /** Format: date-time */
+            refundedAt: string | null;
             /** Format: date-time */
             createdAt: string;
             item: components["schemas"]["TransactionItemSummary"];
             variant: components["schemas"]["TransactionVariantSummary"] | null;
-            isFulfilled: boolean;
-            /** Format: date-time */
-            fulfilledAt: string | null;
             user: components["schemas"]["TransactionUserSummary"];
         };
         RefundResponse: {

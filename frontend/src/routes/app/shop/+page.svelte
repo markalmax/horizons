@@ -25,9 +25,32 @@
 		variants: { variantId: number; name: string; cost: number }[];
 	}
 
+	interface Order {
+		transactionId: number;
+		itemId: number;
+		cost: number;
+		isFulfilled: boolean;
+		fulfilledAt: string | null;
+		refundedAt: string | null;
+		createdAt: string;
+		item: { itemId: number; name: string; imageUrl?: string | null };
+		variant: { variantId: number; name: string } | null;
+	}
+
 	let items = $state<ShopItem[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+
+	let orders = $state<Order[]>([]);
+	let ordersLoaded = $state(false);
+	let ordersLoading = $state(false);
+	let ordersError = $state<string | null>(null);
+
+	type Tab = 'shop' | 'orders';
+	let activeTab = $state<Tab>('shop');
+	let onTabs = $state(false);
+	let selectedTabIdx = $state(0);
+	const TABS: Tab[] = ['shop', 'orders'];
 
 	let selectedCategories = $state<Set<string>>(new Set());
 	let selectedRegion = $state('');
@@ -75,6 +98,50 @@
 		}
 	});
 
+	async function loadOrders() {
+		ordersLoading = true;
+		ordersError = null;
+		try {
+			const { data, error: apiError } = await api.GET('/api/shop/auth/transactions');
+			if (apiError) {
+				ordersError = 'Failed to load orders';
+			} else {
+				orders = (data as unknown as Order[]) ?? [];
+			}
+		} catch {
+			ordersError = 'Failed to load orders';
+		} finally {
+			ordersLoading = false;
+			ordersLoaded = true;
+		}
+	}
+
+	function setTab(tab: Tab) {
+		if (activeTab === tab) return;
+		activeTab = tab;
+		interacted = true;
+		skipItemAnimation = false;
+		nav.col = 0;
+		nav.row = 0;
+		scrollContainer?.scrollTo({ top: 0 });
+		if (tab === 'orders' && !ordersLoaded) loadOrders();
+	}
+
+	function orderStatusLabel(order: Order): string {
+		if (order.refundedAt) return 'Refunded';
+		if (order.isFulfilled) return 'Fulfilled';
+		return 'Processing';
+	}
+
+	function formatHours(cost: number): string {
+		return `${cost} hour${cost === 1 ? '' : 's'}`;
+	}
+
+	function formatDate(iso: string): string {
+		const d = new Date(iso);
+		return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+	}
+
 	async function navigateTo(href: string, opts: { exitBack?: boolean } = {}) {
 		navigating = true;
 		if (opts.exitBack) backExiting = true;
@@ -92,11 +159,15 @@
 
 	let usingMouse = $state(true);
 	let gridEl: HTMLDivElement;
+	let ordersEl: HTMLDivElement | undefined;
 
 	const CARD_W = 300;
 	const GAP = 16;
 
 	function getColumnsLayout(): number[] {
+		if (activeTab === 'orders') {
+			return orders.length > 0 ? [orders.length] : [];
+		}
 		if (filteredItems.length === 0) return [];
 		const containerW = gridEl?.clientWidth ?? 932;
 		const cols = Math.max(1, Math.floor((containerW + GAP) / (CARD_W + GAP)));
@@ -116,6 +187,11 @@
 		columns: () => getColumnsLayout(),
 		onEscape: () => navigateTo('/app?noanimate', { exitBack: true }),
 		onSelect: () => {
+			if (activeTab === 'orders') {
+				const order = orders[nav.row];
+				if (order) navigateTo(`/app/shop/${order.itemId}`);
+				return;
+			}
 			const idx = getSelectedIndex();
 			const item = filteredItems[idx];
 			if (item && item.isActive) {
@@ -125,6 +201,7 @@
 	});
 
 	function getSelectedIndex(): number {
+		if (activeTab === 'orders') return nav.row;
 		const containerW = gridEl?.clientWidth ?? 932;
 		const cols = Math.max(1, Math.floor((containerW + GAP) / (CARD_W + GAP)));
 		return nav.row * cols + nav.col;
@@ -141,7 +218,9 @@
 			} else if (nav.row === maxRow) {
 				scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
 			} else {
-				const cards = gridEl?.querySelectorAll('.item-card') as NodeListOf<HTMLElement> | undefined;
+				const containerEl = activeTab === 'orders' ? ordersEl : gridEl;
+				const selector = activeTab === 'orders' ? '.order-card' : '.item-card';
+				const cards = containerEl?.querySelectorAll(selector) as NodeListOf<HTMLElement> | undefined;
 				const card = cards?.[getSelectedIndex()];
 				if (card && scrollContainer) {
 					const cardRect = card.getBoundingClientRect();
@@ -164,17 +243,58 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (usingMouse && ['w', 'a', 's', 'd', 'W', 'A', 'S', 'D', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+		if (e.key === 'Escape') {
+			navigateTo('/app?noanimate', { exitBack: true });
+			return;
+		}
+		const navKeys = ['w', 'a', 's', 'd', 'W', 'A', 'S', 'D', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+		if (usingMouse && navKeys.includes(e.key)) {
 			usingMouse = false;
-			nav.col = 0;
-			nav.row = 0;
+			if (e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') {
+				onTabs = true;
+				selectedTabIdx = TABS.indexOf(activeTab);
+			} else {
+				nav.col = 0;
+				nav.row = 0;
+				onTabs = false;
+			}
 			e.preventDefault();
 			interacted = true;
 			return;
 		}
 		usingMouse = false;
-		nav.handleKeydown(e);
 		interacted = true;
+
+		if (onTabs) {
+			if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') {
+				e.preventDefault();
+				selectedTabIdx = Math.max(0, selectedTabIdx - 1);
+			} else if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') {
+				e.preventDefault();
+				selectedTabIdx = Math.min(TABS.length - 1, selectedTabIdx + 1);
+			} else if (e.key === 's' || e.key === 'S' || e.key === 'ArrowDown') {
+				e.preventDefault();
+				const cols = getColumnsLayout();
+				if (cols.length > 0) {
+					onTabs = false;
+					nav.col = 0;
+					nav.row = 0;
+				}
+			} else if (e.key === 'Enter') {
+				e.preventDefault();
+				setTab(TABS[selectedTabIdx]);
+			}
+			return;
+		}
+
+		if ((e.key === 'w' || e.key === 'W' || e.key === 'ArrowUp') && nav.row === 0) {
+			e.preventDefault();
+			onTabs = true;
+			selectedTabIdx = TABS.indexOf(activeTab);
+			return;
+		}
+
+		nav.handleKeydown(e);
 	}}
 	onpointermove={() => {
 		usingMouse = true;
@@ -183,6 +303,25 @@
 
 <div class="relative size-full overflow-y-auto" bind:this={scrollContainer} onscroll={() => { interacted = true; }}>
 	<div class="info-card" class:exiting={navigating}>
+		<!-- Tabs (right-aligned, sits just above the panel) -->
+		<div class="flex gap-4 items-center w-full max-w-[932px] justify-end">
+			{#each TABS as tab, i (tab)}
+				{@const isActive = activeTab === tab}
+				{@const inKbTabMode = onTabs && !usingMouse}
+				{@const isKbSelected = inKbTabMode && selectedTabIdx === i}
+				{@const showOrange = isKbSelected || (!inKbTabMode && isActive)}
+				<button
+					class="font-bricolage font-semibold text-[24px] text-black border-4 border-black rounded-[20px] shadow-[4px_4px_0px_0px_black] py-2 px-4 cursor-pointer capitalize {showOrange ? 'bg-[#ffa936]' : 'bg-[#f3e8d8] hover:brightness-95'}"
+					style="transform: {isKbSelected ? 'scale(var(--juice-scale))' : 'scale(1)'}; transition: transform var(--juice-duration) var(--juice-easing), background-color var(--selected-duration) ease;"
+					onclick={() => { usingMouse = true; onTabs = false; setTab(tab); }}
+					onmouseenter={() => { usingMouse = true; }}
+				>
+					{tab}
+				</button>
+			{/each}
+		</div>
+
+		{#if activeTab === 'shop'}
 		<!-- Header card -->
 		<div
 			class="border-4 border-black rounded-[20px] shadow-[4px_4px_0px_0px_black] overflow-hidden p-7.5 flex flex-col items-start w-full max-w-[932px]"
@@ -193,6 +332,7 @@
 				Spend your hours on swag, grants, and more.
 			</p>
 		</div>
+
 
 		<!-- Status card -->
 		<div
@@ -327,6 +467,69 @@
 				{/each}
 			{/if}
 		</div>
+		{:else}
+		<!-- Orders -->
+		<div
+			class="status-card border-4 border-black rounded-[20px] shadow-[4px_4px_0px_0px_black] flex items-center justify-center w-full max-w-[932px]"
+			class:hidden={!ordersLoading && !ordersError && orders.length > 0}
+			style="background-color: #f3e8d8; height: 240px;"
+		>
+			<p class="font-bricolage font-semibold text-[28px] text-black/50 m-0 text-center px-6">
+				{#if ordersLoading}LOADING...{:else if ordersError}{ordersError}{:else}No orders yet — head back to the shop to spend some hours{/if}
+			</p>
+		</div>
+
+		{#if !ordersLoading && !ordersError && orders.length > 0}
+			<div class="flex flex-col gap-4 w-full max-w-[932px]" bind:this={ordersEl}>
+				{#each orders as order, i (order.transactionId)}
+					{@const selected = activeTab === 'orders' && i === nav.row}
+					<button
+						class="order-card border-4 border-black rounded-[20px] shadow-[4px_4px_0px_0px_black] overflow-hidden text-left outline-none flex items-center gap-8 p-[30px] w-full"
+						class:selected
+						class:exiting={navigating}
+						style="--card-index: {i}; background-color: {selected && !usingMouse ? 'var(--selected-color)' : '#f3e8d8'}; transition: background-color var(--selected-duration) ease, transform var(--juice-duration) var(--juice-easing); cursor: pointer;"
+						title={orderStatusLabel(order)}
+						onfocus={() => { nav.col = 0; nav.row = i; }}
+						onclick={(e) => {
+							if (usingMouse) {
+								(e.currentTarget as HTMLElement).style.transform = 'scale(1)';
+								setTimeout(() => navigateTo(`/app/shop/${order.itemId}`), 200);
+							} else {
+								nav.col = 0;
+								nav.row = i;
+							}
+						}}
+						onmouseenter={(e) => (e.currentTarget as HTMLElement).style.transform = 'scale(var(--juice-scale))'}
+						onmouseleave={(e) => (e.currentTarget as HTMLElement).style.transform = 'scale(1)'}
+					>
+						<div class="shrink-0 h-[88px] w-[110px] flex items-center justify-center overflow-hidden" style={order.refundedAt ? 'filter: grayscale(1); opacity: 0.6;' : ''}>
+							{#if order.item.imageUrl}
+								<img src={order.item.imageUrl} alt={order.item.name} class="max-w-full max-h-full object-contain" />
+							{:else}
+								<span class="font-bricolage text-2xl text-black/30">?</span>
+							{/if}
+						</div>
+						<div class="flex-1 flex flex-col min-w-0">
+							<p class="font-bricolage font-semibold text-[24px] text-black m-0 leading-normal truncate">
+								{order.item.name}{order.variant ? ` — ${order.variant.name}` : ''}
+							</p>
+							<p class="font-bricolage font-semibold text-[24px] text-black m-0 leading-normal">
+								{formatHours(order.cost)}
+							</p>
+						</div>
+						<div class="shrink-0 flex flex-col items-end gap-1 self-stretch justify-between">
+							<span class="font-bricolage text-[13px] font-bold text-black/60 uppercase tracking-wide">
+								{orderStatusLabel(order)}
+							</span>
+							<span class="font-bricolage text-[13px] text-black/50">
+								{formatDate(order.createdAt)}
+							</span>
+						</div>
+					</button>
+				{/each}
+			</div>
+		{/if}
+		{/if}
 	</div>
 </div>
 
@@ -361,7 +564,7 @@
 	}
 	.info-card {
 		padding: 40px 40px 80px;
-		padding-top: 161px;
+		padding-top: 97px;
 		z-index: 1;
 		display: flex;
 		flex-direction: column;
@@ -412,6 +615,19 @@
 		opacity: 1;
 		transition: opacity var(--enter-duration) ease;
 	}
+	.order-card {
+		animation: item-enter var(--enter-duration) var(--enter-easing) backwards;
+		animation-delay: calc(var(--card-index, 0) * 60ms + 150ms);
+		cursor: pointer;
+		transition: transform var(--juice-duration) var(--juice-easing), background-color var(--selected-duration) ease;
+	}
+	.order-card:hover {
+		transform: scale(var(--juice-scale));
+	}
+	.order-card.exiting {
+		animation: item-exit var(--exit-duration) var(--exit-easing) both;
+	}
+
 	.region-btn,
 	.category-btn {
 		background-color: #f3e8d8;
