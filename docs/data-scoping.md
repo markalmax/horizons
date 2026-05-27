@@ -66,9 +66,10 @@ Reviewers see submission and project data for the review queue, but **user PII i
 | Slack user ID | Yes | For contacting via Slack |
 | Age | Yes | **Computed** from birthday, raw date never returned |
 | Hackatime start date | Yes | Per-user cutoff override (non-PII, operational — helps explain pre-default-cutoff hours) |
+| Country | Yes | Coarse only — for shipping/regional context. No street, city, state, or zip. |
 | Email | **No** | |
 | Birthday (raw) | **No** | Only age is exposed |
-| Address | **No** | |
+| Address (street, city, state, zip) | **No** | |
 | Fraud/sus flags | **No** | |
 
 ### What reviewers see about submissions
@@ -101,11 +102,10 @@ Reviewers see submission and project data for the review queue, but **user PII i
 ```typescript
 const SCOPED_USER_SELECT = {
   userId: true,
-  firstName: true,
-  lastName: true,
   slackUserId: true,
   birthday: true,  // fetched but not returned directly
   hackatimeStartDate: true,
+  country: true,
 };
 ```
 
@@ -120,7 +120,7 @@ private scopeUserData(user) {
     age = today.getFullYear() - birth.getFullYear();
     // adjust if birthday hasn't occurred this year
   }
-  return { userId, firstName, lastName, slackUserId, age };
+  return { userId, displayName, slackUserId, age, hackatimeStartDate, country };
 }
 ```
 
@@ -181,7 +181,8 @@ const projectAdminInclude = {
 | Other user's name | Slack display name only, on shipped projects | No | Yes | Yes |
 | Other user's email | No | No | No | Yes |
 | Other user's age | No | No | Yes (computed) | Yes (raw birthday) |
-| Other user's address | No | No | No | Yes |
+| Other user's country | No | No | Yes | Yes |
+| Other user's address (street/city/state/zip) | No | No | No | Yes |
 | Fraud/sus flags | No | No | No | Yes |
 | Admin comments | No | No | Read/write | Read/write |
 | Hours justification | No | No | Read/write | Read/write |

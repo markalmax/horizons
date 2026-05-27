@@ -202,13 +202,18 @@
 		{onHoursChange}
 	/>
 
-	{#if user.age !== null}
+	{#if user.age !== null || user.country}
 		<div class="text-[13px] text-rv-text flex items-center gap-1.5 mb-1">
 			<svg class="w-3.5 h-3.5 text-rv-dim shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
 				<circle cx="12" cy="7" r="4" />
 			</svg>
-			<span class="bg-rv-green-bg text-rv-green text-[11px] font-bold py-0.5 px-2 rounded-sm">{user.age}yo</span>
+			{#if user.age !== null}
+				<span class="bg-rv-green-bg text-rv-green text-[11px] font-bold py-0.5 px-2 rounded-sm">{user.age}yo</span>
+			{/if}
+			{#if user.country}
+				<span class="bg-rv-tag-bg text-rv-accent text-[11px] font-bold py-0.5 px-2 rounded-sm">{user.country}</span>
+			{/if}
 		</div>
 	{/if}
 

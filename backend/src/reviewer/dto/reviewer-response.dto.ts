@@ -20,6 +20,9 @@ export class ScopedUserResponse {
 
   @ApiProperty({ type: String, nullable: true, format: 'date-time' })
   hackatimeStartDate: Date | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  country: string | null;
 }
 
 class QueueProjectResponse {
