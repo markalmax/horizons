@@ -341,9 +341,13 @@
 		}, 600);
 	}
 
-	let hasUrlErrors = $derived(
+	let ignoreUrlErrors = $state(false);
+
+	let hasRawUrlErrors = $derived(
 		demoUrlStatus === 'error' || codeUrlStatus === 'error' || readmeUrlStatus === 'error'
 	);
+
+	let hasUrlErrors = $derived(hasRawUrlErrors && !ignoreUrlErrors);
 
 	let urlsChecking = $derived(
 		demoUrlStatus === 'checking' || codeUrlStatus === 'checking' || readmeUrlStatus === 'checking'
@@ -591,6 +595,18 @@
 			</div>
 
 			<FormError message={errorMsg} />
+			{#if hasRawUrlErrors && !ignoreUrlErrors}
+				<p class="text-amber-600 text-xs font-semibold m-0 text-center">
+					One or more URLs failed validation.
+					<button
+						type="button"
+						class="underline cursor-pointer bg-transparent border-0 p-0 font-semibold text-amber-700 hover:text-amber-800"
+						onclick={() => (ignoreUrlErrors = true)}
+					>
+						Ignore — I know what I'm doing
+					</button>
+				</p>
+			{/if}
 			<FormSubmitButton
 				class="submit-btn {focusedButtonIndex === 0 ? 'selected' : ''}"
 				label="SAVE CHANGES"
