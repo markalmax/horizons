@@ -23,12 +23,15 @@ import { SlackService } from '../slack/slack.service';
 import { HackatimeService } from '../hackatime/hackatime.service';
 import { MetricsService } from '../metrics/metrics.service';
 
-// Scoped user fields — no PII like email, address, birthday, or real name
+// Scoped user fields — no PII like email, street address, birthday, or real name.
+// Country is exposed because reviewers use it for context (shipping eligibility,
+// regional norms) and it's coarse enough not to identify a user.
 const SCOPED_USER_SELECT = {
   userId: true,
   slackUserId: true,
   birthday: true, // used to compute age only, never sent raw
   hackatimeStartDate: true,
+  country: true,
 } as const;
 
 @Injectable()
@@ -1008,6 +1011,7 @@ export class ReviewerService {
       slackUserId: string | null;
       birthday: Date | null;
       hackatimeStartDate: Date | null;
+      country: string | null;
     },
     displayNameMap: Map<string, string>,
   ) {
@@ -1033,6 +1037,7 @@ export class ReviewerService {
       slackUserId: user.slackUserId,
       age,
       hackatimeStartDate: user.hackatimeStartDate,
+      country: user.country,
     };
   }
 

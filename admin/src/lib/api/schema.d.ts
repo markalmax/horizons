@@ -3255,6 +3255,7 @@ export interface components {
             age: number | null;
             /** Format: date-time */
             hackatimeStartDate: string | null;
+            country: string | null;
         };
         PastReviewEntry: {
             submissionId: number;
