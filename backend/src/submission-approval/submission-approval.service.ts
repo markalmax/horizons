@@ -493,6 +493,7 @@ export class SubmissionApprovalService {
           err,
         ),
       );
+
     await this.sendNotifications(submission, {
       approved: false,
       approvedHours: submission.approvedHours ?? undefined,
@@ -726,6 +727,11 @@ export class SubmissionApprovalService {
     },
   ): Promise<void> {
     if (payload.sendEmail) {
+      // Email doesn't auto-resolve Slack mention syntax — replace `<@U…>`
+      // with `@<displayName>` so users don't see raw mention IDs.
+      const emailFeedback = await this.slackService.renderMentionsAsText(
+        payload.feedback,
+      );
       // Dedupe inside Loops' 24h window if this finalization is re-fired
       // outside the CAS (e.g. a manual admin retrigger on the same row).
       const idempotencyKey = `submission-review-${submission.submissionId}-${payload.finalizedAt.toISOString()}`;
@@ -736,7 +742,7 @@ export class SubmissionApprovalService {
           projectId: submission.project.projectId,
           approved: payload.approved,
           approvedHours: payload.approvedHours,
-          feedback: payload.feedback,
+          feedback: emailFeedback ?? null,
         },
         { idempotencyKey },
       );
@@ -748,6 +754,7 @@ export class SubmissionApprovalService {
     }
 
     try {
+      // Slack renders `<@U…>` natively, so pass feedback through unchanged.
       await this.slackService.notifySubmissionReview(
         submission.project.user.email,
         {
@@ -755,7 +762,7 @@ export class SubmissionApprovalService {
           projectId: submission.project.projectId,
           approved: payload.approved,
           approvedHours: payload.approvedHours,
-          feedback: payload.feedback,
+          feedback: payload.feedback ?? undefined,
         },
       );
     } catch (error) {
