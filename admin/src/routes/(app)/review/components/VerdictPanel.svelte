@@ -54,6 +54,7 @@
 	let approveComment = $state('');
 	let approvedHours = $state(hackatimeHours ?? 0);
 	let reviewerManuallyEditedHours = $state(false);
+	let approvedHoursLocked = $state(true);
 	let sendEmail = $state(true);
 
 	// Changes needed form fields
@@ -96,6 +97,7 @@
 			? priorApprovedHours ?? hackatimeHours ?? 0
 			: hackatimeHours ?? 0;
 		reviewerManuallyEditedHours = reviewerApproved;
+		approvedHoursLocked = true;
 		sendEmail = true;
 		changesComment = reviewerApproved ? '' : priorUserFeedback ?? '';
 		rejectSendEmail = true;
@@ -292,15 +294,49 @@
 					Approved Hours
 					<span class="font-normal opacity-80 italic">(defaults to submitted hours)</span>
 				</label>
-				<input
-					id="approved-hours"
-					type="number"
-					step="0.5"
-					min="0"
-					bind:value={approvedHours}
-					oninput={() => { reviewerManuallyEditedHours = true; }}
-					class="w-[100px] bg-rv-surface border border-rv-border rounded-md p-2.5 text-rv-text text-[13px] font-semibold resize-vertical focus:outline-none focus:border-rv-accent"
-				/>
+				<div class="flex items-center gap-2">
+					<input
+						id="approved-hours"
+						type="number"
+						step="0.5"
+						min="0"
+						bind:value={approvedHours}
+						disabled={approvedHoursLocked}
+						oninput={() => { reviewerManuallyEditedHours = true; }}
+						class="w-[100px] bg-rv-surface border border-rv-border rounded-md p-2.5 text-rv-text text-[13px] font-semibold resize-vertical focus:outline-none focus:border-rv-accent disabled:opacity-60 disabled:cursor-not-allowed"
+					/>
+					{#if approvedHoursLocked}
+						<button
+							type="button"
+							class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold font-inherit cursor-pointer border border-rv-border bg-transparent text-rv-dim hover:text-rv-text hover:border-rv-accent transition-colors duration-150"
+							onclick={() => (approvedHoursLocked = false)}
+							title="Override the submitted hours"
+						>
+							Make adjustments
+						</button>
+					{:else}
+						<button
+							type="button"
+							class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold font-inherit cursor-pointer border border-rv-border bg-transparent text-rv-dim hover:text-rv-text hover:border-rv-accent transition-colors duration-150"
+							onclick={() => (approvedHoursLocked = true)}
+							title="Lock the current value"
+						>
+							Lock
+						</button>
+						<button
+							type="button"
+							class="px-2.5 py-1.5 rounded-md text-[11px] font-semibold font-inherit cursor-pointer border border-rv-border bg-transparent text-rv-dim hover:text-rv-text hover:border-rv-accent transition-colors duration-150"
+							onclick={() => {
+								approvedHoursLocked = true;
+								approvedHours = hackatimeHours ?? 0;
+								reviewerManuallyEditedHours = false;
+							}}
+							title="Reset to submitted hours and lock"
+						>
+							Reset
+						</button>
+					{/if}
+				</div>
 				{#if hasReshipContext && reshipDelta != null && !reshipNoticeDismissed}
 					<p class="mt-1 mb-0 text-[11px] text-rv-dim flex items-center gap-1.5">
 						<span>
