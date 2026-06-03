@@ -829,9 +829,9 @@ export class AdminService {
     return Number(result[0]?.count ?? 0);
   }
 
-  // SUM(now_hackatime_hours) restricted to projects with at least one
-  // non-rejected submission (pending or approved). Rejected-only projects are
-  // excluded so the funnel reflects hours that are still in play.
+  // SUM(now_hackatime_hours) restricted to projects whose latest submission
+  // isn't rejected. Matches the `submittedExcludingRejected` distribution mode
+  // so the funnel step and chart agree on the approved→rejected case.
   private async countUsersWithSubmittedHoursGte(threshold: number): Promise<number> {
     const result = await this.prisma.$queryRaw<Array<{ count: bigint }>>`
       SELECT COUNT(*) as count FROM (
@@ -841,7 +841,11 @@ export class AdminService {
           AND EXISTS (
             SELECT 1 FROM submissions s
             WHERE s.project_id = p.project_id
-              AND s.approval_status IN ('pending', 'approved')
+              AND s.approval_status <> 'rejected'
+              AND s.created_at = (
+                SELECT MAX(s2.created_at) FROM submissions s2
+                WHERE s2.project_id = p.project_id
+              )
           )
         GROUP BY p.user_id
         HAVING COALESCE(SUM(p.now_hackatime_hours), 0) >= ${threshold}
@@ -900,11 +904,36 @@ export class AdminService {
       ORDER BY count DESC
     `;
 
-    // Per-event qualification funnel:
-    //   engaged       — pinned users with ≥1 approved hour
-    //   canBuyTicket  — pinned users whose approved hours clear this event's
-    //                   ticketThreshold (rsvp_cost column; null = no gate)
-    //   boughtTicket  — pinned users with an EventTicket transaction for this event
+    // Per-event qualification funnel. Each bucket nests as a superset of the
+    // next so the stacked bar adds up cleanly. The right "engaged" umbrella
+    // depends on which chart mode the admin picks:
+    //   - Approved-only mode: Bought ⊆ CanBuy ⊆ Engaged (≥1 approved hour)
+    //   - Approved+pending mode: Bought ⊆ CanBuy ⊆ CanBuyWithPending ⊆ CouldBuy
+    //     ⊆ EngagedTracked (tracked any hour) ⊆ SignedUp
+    //
+    //   engaged                  — pinned users with ≥1 approved hour. Nests
+    //                              below CanBuy in approved-only mode.
+    //   engagedTracked           — pinned users who have tracked any hours on a
+    //                              Horizons project (sum of now_hackatime_hours
+    //                              > 0), regardless of submission state — the
+    //                              umbrella the approved+pending funnel needs
+    //                              since CouldBuy can include users with zero
+    //                              approved hours.
+    //   canBuyTicket             — pinned users whose approved hours clear this
+    //                              event's ticketThreshold (rsvp_cost column;
+    //                              null = no gate)
+    //   canBuyTicketWithPending  — same gate, but counts a pending submission's
+    //                              hackatime_hours snapshot in place of approved
+    //                              hours when the latest submission is still in
+    //                              review. Projects "what if all pending reviews
+    //                              approve at the submitted ceiling".
+    //   couldBuyTicket           — the most permissive projection:
+    //                              now_hackatime_hours for every project whose
+    //                              latest submission isn't rejected (and for
+    //                              projects with no submission at all). I.e.
+    //                              tracked + approved + pending − rejected.
+    //   boughtTicket             — pinned users with an EventTicket transaction
+    //                              for this event
     const qualificationResult = await this.prisma.$queryRaw<
       Array<{
         event_id: number;
@@ -912,7 +941,10 @@ export class AdminService {
         slug: string;
         signed_up: bigint;
         engaged: bigint;
+        engaged_tracked: bigint;
         can_buy_ticket: bigint;
+        can_buy_ticket_with_pending: bigint;
+        could_buy_ticket: bigint;
         bought_ticket: bigint;
       }>
     >`
@@ -922,16 +954,81 @@ export class AdminService {
         e.slug,
         COUNT(pe.id) AS signed_up,
         COUNT(*) FILTER (WHERE COALESCE(ut.approved_total, 0) >= 1) AS engaged,
+        COUNT(*) FILTER (WHERE COALESCE(ut.tracked_total, 0) > 0) AS engaged_tracked,
         COUNT(*) FILTER (
           WHERE e.rsvp_cost IS NULL OR COALESCE(ut.approved_total, 0) >= e.rsvp_cost
         ) AS can_buy_ticket,
+        COUNT(*) FILTER (
+          WHERE e.rsvp_cost IS NULL
+            OR COALESCE(ut.approved_plus_pending_total, 0) >= e.rsvp_cost
+        ) AS can_buy_ticket_with_pending,
+        COUNT(*) FILTER (
+          WHERE e.rsvp_cost IS NULL
+            OR COALESCE(ut.could_total, 0) >= e.rsvp_cost
+        ) AS could_buy_ticket,
         COUNT(*) FILTER (WHERE et.user_id IS NOT NULL) AS bought_ticket
       FROM pinned_events pe
       INNER JOIN events e ON e.event_id = pe.event_id
       LEFT JOIN (
         SELECT
           p.user_id,
-          SUM(COALESCE(p.approved_hours, 0)) AS approved_total
+          -- Engaged umbrella: any tracked Hackatime hours on any of the user's
+          -- Horizons projects, regardless of submission state. Includes time on
+          -- projects whose latest sub was rejected — they still engaged.
+          SUM(COALESCE(p.now_hackatime_hours, 0)) AS tracked_total,
+          SUM(COALESCE(p.approved_hours, 0)) AS approved_total,
+          SUM(
+            CASE
+              -- Latest submission is pending: use that submission's
+              -- hackatime_hours snapshot (what the reviewer can actually
+              -- approve), not the project's live now_hackatime_hours. Tracking
+              -- added after the user hit Ship isn't part of the pending
+              -- review. GREATEST keeps earlier approved hours in play in case
+              -- a re-claim ever drops below them.
+              WHEN (
+                SELECT s.hackatime_hours FROM submissions s
+                WHERE s.project_id = p.project_id
+                  AND s.approval_status = 'pending'
+                  AND s.review_passed IS NULL
+                  AND s.created_at = (
+                    SELECT MAX(s2.created_at) FROM submissions s2
+                    WHERE s2.project_id = p.project_id
+                  )
+              ) IS NOT NULL
+              THEN GREATEST(
+                COALESCE(p.approved_hours, 0),
+                COALESCE((
+                  SELECT s.hackatime_hours FROM submissions s
+                  WHERE s.project_id = p.project_id
+                    AND s.approval_status = 'pending'
+                    AND s.review_passed IS NULL
+                    AND s.created_at = (
+                      SELECT MAX(s2.created_at) FROM submissions s2
+                      WHERE s2.project_id = p.project_id
+                    )
+                ), 0)
+              )
+              ELSE COALESCE(p.approved_hours, 0)
+            END
+          ) AS approved_plus_pending_total,
+          SUM(
+            CASE
+              WHEN EXISTS (
+                SELECT 1 FROM submissions s
+                WHERE s.project_id = p.project_id
+                  AND s.approval_status = 'rejected'
+                  AND s.created_at = (
+                    SELECT MAX(s2.created_at) FROM submissions s2
+                    WHERE s2.project_id = p.project_id
+                  )
+              )
+              -- Latest ship rejected: locked-in approved hours from earlier
+              -- approved submissions still count toward "could buy"; the
+              -- rejected re-submission's incremental ask doesn't.
+              THEN COALESCE(p.approved_hours, 0)
+              ELSE COALESCE(p.now_hackatime_hours, 0)
+            END
+          ) AS could_total
         FROM projects p
         WHERE p.deleted_at IS NULL
         GROUP BY p.user_id
@@ -1009,7 +1106,10 @@ export class AdminService {
         slug: r.slug,
         signedUp: Number(r.signed_up),
         engaged: Number(r.engaged),
+        engagedTracked: Number(r.engaged_tracked),
         canBuyTicket: Number(r.can_buy_ticket),
+        canBuyTicketWithPending: Number(r.can_buy_ticket_with_pending),
+        couldBuyTicket: Number(r.could_buy_ticket),
         boughtTicket: Number(r.bought_ticket),
       })),
       routes,

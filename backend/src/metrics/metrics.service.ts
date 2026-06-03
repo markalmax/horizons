@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client';
 import { PrismaService } from '../prisma.service';
 
 /**
@@ -63,7 +64,11 @@ export class MetricsService {
               )
           )
       `,
-      // Approved hours: latest approved submission per fraud-passed project
+      // Approved hours: latest submission overall is approved (per fraud-passed
+      // project). Gating on the latest-overall (not the latest-approved) keeps
+      // approved/rejected buckets mutually exclusive — a project whose most
+      // recent submission was rejected after an earlier approval lands in
+      // rejected, not approved.
       this.prisma.$queryRaw<Array<{ total_hours: number }>>`
         SELECT COALESCE(SUM(s.approved_hours), 0) as total_hours
         FROM submissions s
@@ -76,7 +81,6 @@ export class MetricsService {
           AND s.created_at = (
             SELECT MAX(s2.created_at) FROM submissions s2
             WHERE s2.project_id = p.project_id
-              AND s2.approval_status = 'approved'
               AND s2.created_at <= ${ceiling}
           )
       `,
@@ -225,6 +229,219 @@ export class MetricsService {
     return {
       unshipped: bucketize(unshippedRows),
       shipped: bucketize(shippedRows),
+      approved: bucketize(approvedRows),
+    };
+  }
+
+  /**
+   * Histogram of user counts by per-user total hours, computed three ways:
+   *   - `tracked`:   every user, bucketed by SUM(nowHackatimeHours) across their projects
+   *   - `submitted`: every user, bucketed by SUM(nowHackatimeHours) across projects with ≥1 submission
+   *   - `approved`:  every user, bucketed by SUM(approvedHours) across their projects
+   * Users with no projects fall into the '0' bucket. All three modes are
+   * returned so the client can toggle without re-fetching.
+   *
+   * Pass `eventSlug` to restrict to users who have pinned that event (their
+   * chosen cohort). Omit to count across all users.
+   */
+  async computeUserHoursDistribution(opts?: { asOf?: Date; eventSlug?: string }) {
+    const ceiling = opts?.asOf ?? new Date(8640000000000000);
+    const eventSlug = opts?.eventSlug;
+    const order = [
+      '0',
+      '0-5',
+      '5-10',
+      '10-15',
+      '15-20',
+      '20-25',
+      '25-30',
+      '30-40',
+      '40-50',
+      '50-75',
+      '75-100',
+      '100+',
+    ];
+
+    const bucketize = (rows: Array<{ bucket: string; count: bigint }>) => {
+      const map = new Map<string, number>();
+      for (const r of rows) map.set(r.bucket, Number(r.count));
+      return order.map((bucket) => ({ bucket, count: map.get(bucket) ?? 0 }));
+    };
+
+    // Restrict the user set to a single pinned event when a slug is provided.
+    // Inlined into the FROM clause of every mode so the SQL plan stays identical
+    // for both the filtered and global paths.
+    const eventJoin = eventSlug
+      ? Prisma.sql`
+          JOIN pinned_events pe ON pe.user_id = u.user_id
+          JOIN events e ON e.event_id = pe.event_id AND e.slug = ${eventSlug}
+        `
+      : Prisma.empty;
+
+    const [trackedRows, submittedRows, submittedExcludingRejectedRows, approvedRows] = await Promise.all([
+      // Tracked mode: every user, bucketed by SUM(nowHackatimeHours) across their projects
+      this.prisma.$queryRaw<Array<{ bucket: string; count: bigint }>>`
+        SELECT bucket, COUNT(*)::bigint AS count FROM (
+          SELECT CASE
+            WHEN total_hours <= 0 THEN '0'
+            WHEN total_hours < 5   THEN '0-5'
+            WHEN total_hours < 10  THEN '5-10'
+            WHEN total_hours < 15  THEN '10-15'
+            WHEN total_hours < 20  THEN '15-20'
+            WHEN total_hours < 25  THEN '20-25'
+            WHEN total_hours < 30  THEN '25-30'
+            WHEN total_hours < 40  THEN '30-40'
+            WHEN total_hours < 50  THEN '40-50'
+            WHEN total_hours < 75  THEN '50-75'
+            WHEN total_hours < 100 THEN '75-100'
+            ELSE '100+'
+          END AS bucket
+          FROM (
+            SELECT u.user_id,
+                   COALESCE(SUM(p.now_hackatime_hours), 0) AS total_hours
+            FROM users u
+            ${eventJoin}
+            LEFT JOIN projects p
+              ON p.user_id = u.user_id
+              AND p.deleted_at IS NULL
+              AND p.created_at <= ${ceiling}
+            WHERE u.created_at <= ${ceiling}
+            GROUP BY u.user_id
+          ) ut
+        ) b
+        GROUP BY bucket
+      `,
+      // Submitted mode: every user, bucketed by SUM(nowHackatimeHours) across
+      // projects with ≥1 submission
+      this.prisma.$queryRaw<Array<{ bucket: string; count: bigint }>>`
+        SELECT bucket, COUNT(*)::bigint AS count FROM (
+          SELECT CASE
+            WHEN total_hours <= 0 THEN '0'
+            WHEN total_hours < 5   THEN '0-5'
+            WHEN total_hours < 10  THEN '5-10'
+            WHEN total_hours < 15  THEN '10-15'
+            WHEN total_hours < 20  THEN '15-20'
+            WHEN total_hours < 25  THEN '20-25'
+            WHEN total_hours < 30  THEN '25-30'
+            WHEN total_hours < 40  THEN '30-40'
+            WHEN total_hours < 50  THEN '40-50'
+            WHEN total_hours < 75  THEN '50-75'
+            WHEN total_hours < 100 THEN '75-100'
+            ELSE '100+'
+          END AS bucket
+          FROM (
+            SELECT u.user_id,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN EXISTS (
+                         SELECT 1 FROM submissions s
+                         WHERE s.project_id = p.project_id
+                           AND s.created_at <= ${ceiling}
+                       )
+                       THEN p.now_hackatime_hours
+                       ELSE 0
+                     END
+                   ), 0) AS total_hours
+            FROM users u
+            ${eventJoin}
+            LEFT JOIN projects p
+              ON p.user_id = u.user_id
+              AND p.deleted_at IS NULL
+              AND p.created_at <= ${ceiling}
+            WHERE u.created_at <= ${ceiling}
+            GROUP BY u.user_id
+          ) ut
+        ) b
+        GROUP BY bucket
+      `,
+      // Submitted-excluding-rejected mode: like submitted, but a project only
+      // contributes when its latest submission isn't `rejected`. Projects whose
+      // most recent submission is rejected drop out entirely.
+      this.prisma.$queryRaw<Array<{ bucket: string; count: bigint }>>`
+        SELECT bucket, COUNT(*)::bigint AS count FROM (
+          SELECT CASE
+            WHEN total_hours <= 0 THEN '0'
+            WHEN total_hours < 5   THEN '0-5'
+            WHEN total_hours < 10  THEN '5-10'
+            WHEN total_hours < 15  THEN '10-15'
+            WHEN total_hours < 20  THEN '15-20'
+            WHEN total_hours < 25  THEN '20-25'
+            WHEN total_hours < 30  THEN '25-30'
+            WHEN total_hours < 40  THEN '30-40'
+            WHEN total_hours < 50  THEN '40-50'
+            WHEN total_hours < 75  THEN '50-75'
+            WHEN total_hours < 100 THEN '75-100'
+            ELSE '100+'
+          END AS bucket
+          FROM (
+            SELECT u.user_id,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN EXISTS (
+                         SELECT 1 FROM submissions s
+                         WHERE s.project_id = p.project_id
+                           AND s.created_at <= ${ceiling}
+                           AND s.created_at = (
+                             SELECT MAX(s2.created_at) FROM submissions s2
+                             WHERE s2.project_id = p.project_id
+                               AND s2.created_at <= ${ceiling}
+                           )
+                           AND s.approval_status <> 'rejected'
+                       )
+                       THEN p.now_hackatime_hours
+                       ELSE 0
+                     END
+                   ), 0) AS total_hours
+            FROM users u
+            ${eventJoin}
+            LEFT JOIN projects p
+              ON p.user_id = u.user_id
+              AND p.deleted_at IS NULL
+              AND p.created_at <= ${ceiling}
+            WHERE u.created_at <= ${ceiling}
+            GROUP BY u.user_id
+          ) ut
+        ) b
+        GROUP BY bucket
+      `,
+      // Approved mode: every user, bucketed by SUM(approvedHours) across their projects
+      this.prisma.$queryRaw<Array<{ bucket: string; count: bigint }>>`
+        SELECT bucket, COUNT(*)::bigint AS count FROM (
+          SELECT CASE
+            WHEN total_hours <= 0 THEN '0'
+            WHEN total_hours < 5   THEN '0-5'
+            WHEN total_hours < 10  THEN '5-10'
+            WHEN total_hours < 15  THEN '10-15'
+            WHEN total_hours < 20  THEN '15-20'
+            WHEN total_hours < 25  THEN '20-25'
+            WHEN total_hours < 30  THEN '25-30'
+            WHEN total_hours < 40  THEN '30-40'
+            WHEN total_hours < 50  THEN '40-50'
+            WHEN total_hours < 75  THEN '50-75'
+            WHEN total_hours < 100 THEN '75-100'
+            ELSE '100+'
+          END AS bucket
+          FROM (
+            SELECT u.user_id,
+                   COALESCE(SUM(p.approved_hours), 0) AS total_hours
+            FROM users u
+            ${eventJoin}
+            LEFT JOIN projects p
+              ON p.user_id = u.user_id
+              AND p.deleted_at IS NULL
+              AND p.created_at <= ${ceiling}
+            WHERE u.created_at <= ${ceiling}
+            GROUP BY u.user_id
+          ) ut
+        ) b
+        GROUP BY bucket
+      `,
+    ]);
+
+    return {
+      tracked: bucketize(trackedRows),
+      submitted: bucketize(submittedRows),
+      submittedExcludingRejected: bucketize(submittedExcludingRejectedRows),
       approved: bucketize(approvedRows),
     };
   }
@@ -551,6 +768,7 @@ export class MetricsService {
       dau: [],
       newSignups: [],
       submissionsCreated: [],
+      dailySubmissionsLogged: [],
       reviewsCompleted: [],
       medianReviewTimeHours: [],
       medianFraudCheckTimeHours: [],
@@ -646,6 +864,7 @@ export class MetricsService {
     for (const d of rawDaily.submissions_created) {
       submissionSum += d.value;
       result.submissionsCreated.push({ date: d.date, value: submissionSum });
+      result.dailySubmissionsLogged.push({ date: d.date, value: d.value });
     }
 
     let reviewSum = 0;

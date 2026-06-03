@@ -447,6 +447,20 @@ class HoursDistribution {
   approved: HoursDistributionEntry[];
 }
 
+export class UserHoursDistributionResponse {
+  @ApiProperty({ type: [HoursDistributionEntry] })
+  tracked: HoursDistributionEntry[];
+
+  @ApiProperty({ type: [HoursDistributionEntry] })
+  submitted: HoursDistributionEntry[];
+
+  @ApiProperty({ type: [HoursDistributionEntry] })
+  submittedExcludingRejected: HoursDistributionEntry[];
+
+  @ApiProperty({ type: [HoursDistributionEntry] })
+  approved: HoursDistributionEntry[];
+}
+
 class ReviewTimings {
   @ApiProperty({ type: Number, nullable: true })
   medianReviewTimeThisWeek: number | null;
@@ -558,6 +572,9 @@ export class ReviewStatsResponse {
 
   @ApiProperty({ type: HoursDistribution })
   hoursDistribution: HoursDistribution;
+
+  @ApiProperty({ type: UserHoursDistributionResponse })
+  userHoursDistribution: UserHoursDistributionResponse;
 
   @ApiProperty({ type: ReviewTimings })
   reviewStats: ReviewTimings;

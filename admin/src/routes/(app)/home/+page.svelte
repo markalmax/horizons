@@ -11,6 +11,7 @@
 
 	type Stats = components['schemas']['AdminStatsResponse'];
 	type ReviewStats = components['schemas']['ReviewStatsResponse'];
+	type UserHoursDistribution = components['schemas']['UserHoursDistributionResponse'];
 	type DataPoint = { date: string; value: number };
 	type EChart = echarts.ECharts;
 
@@ -21,9 +22,16 @@
 	let userRole = $state<string | null>(null);
 	let selectedEventFilter = $state<string>('all');
 	let selectedFunnelEvent = $state<string>('all');
+	let selectedUserHoursEvent = $state<string>('all');
+	let userHoursDist = $state<UserHoursDistribution | null>(null);
+	let userHoursLoading = $state(false);
 	let unmatchedOriginCountries = $state<string[]>([]);
 	let unmatchedEventCountries = $state<string[]>([]);
 	let hoursDistMode = $state<'unshipped' | 'shipped' | 'approved'>('approved');
+	let userHoursDistMode = $state<
+		'tracked' | 'submitted' | 'submittedExcludingRejected' | 'approved'
+	>('approved');
+	let canBuyTicketMode = $state<'approved' | 'approvedPlusPending'>('approved');
 
 	const validCountryNames = new Set<string>();
 
@@ -35,11 +43,13 @@
 	let userGrowthEl = $state<HTMLDivElement | null>(null);
 	let dauEl = $state<HTMLDivElement | null>(null);
 	let dailyHoursEl = $state<HTMLDivElement | null>(null);
+	let dailySubmissionsEl = $state<HTMLDivElement | null>(null);
 	let signupsEl = $state<HTMLDivElement | null>(null);
 	let signupMapEl = $state<HTMLDivElement | null>(null);
 	let signupQualificationEl = $state<HTMLDivElement | null>(null);
 	let utmEl = $state<HTMLDivElement | null>(null);
 	let hoursDistributionEl = $state<HTMLDivElement | null>(null);
+	let userHoursDistributionEl = $state<HTMLDivElement | null>(null);
 
 	let homeTab = $state<'users' | 'dau' | 'signups' | 'projects' | 'hours'>('users');
 
@@ -147,6 +157,11 @@
 			if (statsRes.error) throw new Error('Failed to fetch stats');
 			stats = statsRes.data ?? null;
 			reviewStats = reviewRes.data ?? null;
+			// Seed the user-hours distribution from the bundled (unscoped) stats.
+			// When the user picks an event, we re-fetch the scoped version.
+			if (selectedUserHoursEvent === 'all') {
+				userHoursDist = reviewStats?.userHoursDistribution ?? null;
+			}
 			loading = false;
 			await tick();
 			renderAll();
@@ -214,6 +229,67 @@
 		});
 	}
 
+	function renderUserHoursDistribution() {
+		const chart = initChart(userHoursDistributionEl);
+		if (!chart || !userHoursDist) return;
+
+		// Drop the 0 bucket — it's dominated by users with no activity in that
+		// mode and would otherwise flatten the rest of the distribution.
+		const data = userHoursDist[userHoursDistMode].filter(
+			(d) => d.bucket !== '0',
+		);
+		const axisLabel =
+			userHoursDistMode === 'submittedExcludingRejected'
+				? 'submitted (excl. rejected)'
+				: userHoursDistMode;
+		const axisName = `${axisLabel} hours`;
+		const barColor =
+			userHoursDistMode === 'approved'
+				? '#16a34a'
+				: userHoursDistMode === 'submitted' ||
+				  userHoursDistMode === 'submittedExcludingRejected'
+					? '#f97316'
+					: '#3b82f6';
+
+		chart.setOption({
+			backgroundColor: bgColor(),
+			grid: { left: 45, right: 12, top: 16, bottom: 32 },
+			xAxis: {
+				type: 'category',
+				data: data.map((d) => d.bucket),
+				axisLabel: { color: dimColor(), fontSize: 10 },
+				axisLine: { lineStyle: { color: gridColor() } },
+				axisTick: { show: false },
+				name: axisName,
+				nameLocation: 'middle',
+				nameGap: 26,
+				nameTextStyle: { color: dimColor(), fontSize: 10 },
+			},
+			yAxis: {
+				type: 'value',
+				axisLabel: { color: dimColor(), fontSize: 10 },
+				splitLine: { lineStyle: { color: gridColor(), type: 'dashed' } },
+				axisLine: { show: false },
+				min: 0,
+			},
+			tooltip: {
+				trigger: 'axis',
+				formatter: (params: any) => {
+					const p = params[0];
+					return `${p.axisValue}h<br/><b>${p.value}</b> users`;
+				},
+			},
+			series: [
+				{
+					type: 'bar',
+					data: data.map((d) => d.count),
+					itemStyle: { color: barColor },
+					barWidth: '70%',
+				},
+			],
+		});
+	}
+
 	function initChart(el: HTMLDivElement | null): EChart | null {
 		if (!el) return null;
 		const existing = echarts.getInstanceByDom(el);
@@ -233,11 +309,13 @@
 		renderLineChart(userGrowthEl, stats.historical.newSignups, '#3b82f6', 'rgba(59,130,246,0.15)');
 		renderLineChart(dauEl, stats.historical.dau, '#3b82f6', 'rgba(59,130,246,0.15)');
 		renderLineChart(dailyHoursEl, stats.historical.dailyHoursLogged, '#22c55e', 'rgba(34,197,94,0.15)', 'h');
+		renderLineChart(dailySubmissionsEl, stats.historical.dailySubmissionsLogged, '#f59e0b', 'rgba(245,158,11,0.15)');
 		renderLineChart(signupsEl, stats.historical.newSignups, '#22c55e', 'rgba(34,197,94,0.15)');
 		renderSignupQualificationChart();
 		renderSignupMap();
 		renderUtmChart();
 		renderHoursDistribution();
+		renderUserHoursDistribution();
 	}
 
 	function renderFunnel() {
@@ -638,17 +716,45 @@
 
 		const data = stats.signups.qualification;
 		const dark = isDark();
+		const includePending = canBuyTicketMode === 'approvedPlusPending';
+		const canBuyOf = (d: (typeof data)[number]) =>
+			includePending ? d.canBuyTicketWithPending : d.canBuyTicket;
+		// Pick the engaged definition that keeps the funnel nested:
+		//   - approved-only mode: ≥1 approved hour (legacy)
+		//   - approved+pending mode: tracked any hour (umbrella over CouldBuy,
+		//     which can include users with zero approved hours)
+		const engagedOf = (d: (typeof data)[number]) =>
+			includePending ? d.engagedTracked : d.engaged;
+		const engagedLabel = includePending
+			? 'Engaged (tracked any hour)'
+			: 'Engaged (≥1h approved)';
+		const canBuyLabel = includePending
+			? 'Can Buy Ticket (approved + pending)'
+			: 'Can Buy Ticket';
+		const couldBuyLabel = 'Could Buy Ticket (tracked − rejected)';
 
-		// Three-segment funnel per event, stacked outward from the smallest:
-		// Bought Ticket ⊂ Can Buy Ticket ⊂ Engaged. The bar's total length is
-		// the Engaged count; Signed up shows on the right as the denominator.
+		// Funnel per event, stacked outward from the smallest. When the
+		// approved+pending toggle is on we also surface a "Could Buy" envelope
+		// (most permissive: tracked + approved + pending − rejected). The
+		// segments are clamped to ≥0 so non-nested filters degrade gracefully —
+		// e.g. couldBuy > engaged just zeroes the engagedOnly slice instead of
+		// going negative.
 		const boughtColor = dark ? '#15803d' : '#166534';
 		const canBuyColor = dark ? '#3b82f6' : '#2563eb';
+		const couldBuyColor = dark ? '#7c3aed' : '#6d28d9';
 		const engagedColor = dark ? '#22c55e' : '#16a34a';
 
 		const boughtData = data.map((d) => d.boughtTicket);
-		const canBuyOnlyData = data.map((d) => Math.max(0, d.canBuyTicket - d.boughtTicket));
-		const engagedOnlyData = data.map((d) => Math.max(0, d.engaged - d.canBuyTicket));
+		const canBuyOnlyData = data.map((d) => Math.max(0, canBuyOf(d) - d.boughtTicket));
+		const couldBuyOnlyData = data.map((d) =>
+			includePending ? Math.max(0, d.couldBuyTicket - canBuyOf(d)) : 0,
+		);
+		const engagedOnlyData = data.map((d) => {
+			const outerCanBuy = includePending
+				? Math.max(canBuyOf(d), d.couldBuyTicket)
+				: canBuyOf(d);
+			return Math.max(0, engagedOf(d) - outerCanBuy);
+		});
 
 		const segmentLabel = (value: number, total: number) => {
 			if (!value || !total) return '';
@@ -664,7 +770,9 @@
 				textStyle: { color: dimColor(), fontSize: 10 },
 				itemWidth: 14,
 				itemHeight: 8,
-				data: ['Bought Ticket', 'Can Buy Ticket', 'Engaged'],
+				data: includePending
+					? ['Bought Ticket', canBuyLabel, couldBuyLabel, engagedLabel]
+					: ['Bought Ticket', canBuyLabel, engagedLabel],
 			},
 			xAxis: {
 				type: 'value',
@@ -687,10 +795,16 @@
 					const idx = params[0].dataIndex;
 					const d = data[idx];
 					const pct = (n: number) => (d.signedUp ? ((n / d.signedUp) * 100).toFixed(1) : '0.0');
+					const canBuy = canBuyOf(d);
+					const engaged = engagedOf(d);
+					const couldBuyLine = includePending
+						? `${couldBuyLabel}: ${d.couldBuyTicket} (${pct(d.couldBuyTicket)}%)<br/>`
+						: '';
 					return `<b>${d.title}</b><br/>`
 						+ `Signed up: ${d.signedUp} (100%)<br/>`
-						+ `Engaged (≥1h approved): ${d.engaged} (${pct(d.engaged)}%)<br/>`
-						+ `Can Buy Ticket: ${d.canBuyTicket} (${pct(d.canBuyTicket)}%)<br/>`
+						+ `${engagedLabel}: ${engaged} (${pct(engaged)}%)<br/>`
+						+ couldBuyLine
+						+ `${canBuyLabel}: ${canBuy} (${pct(canBuy)}%)<br/>`
 						+ `Bought Ticket: ${d.boughtTicket} (${pct(d.boughtTicket)}%)`;
 				},
 			},
@@ -712,7 +826,7 @@
 					},
 				},
 				{
-					name: 'Can Buy Ticket',
+					name: canBuyLabel,
 					type: 'bar',
 					stack: 'qualification',
 					data: canBuyOnlyData,
@@ -727,8 +841,29 @@
 						formatter: (p: any) => segmentLabel(p.value, data[p.dataIndex].signedUp),
 					},
 				},
+				...(includePending
+					? [
+							{
+								name: couldBuyLabel,
+								type: 'bar' as const,
+								stack: 'qualification',
+								data: couldBuyOnlyData,
+								barWidth: 22,
+								itemStyle: { color: couldBuyColor },
+								label: {
+									show: true,
+									position: 'inside' as const,
+									color: '#fff',
+									fontSize: 10,
+									fontWeight: 600,
+									formatter: (p: any) =>
+										segmentLabel(p.value, data[p.dataIndex].signedUp),
+								},
+							},
+						]
+					: []),
 				{
-					name: 'Engaged',
+					name: engagedLabel,
 					type: 'bar',
 					stack: 'qualification',
 					data: engagedOnlyData,
@@ -877,6 +1012,46 @@
 	$effect(() => {
 		hoursDistMode;
 		if (reviewStats) tick().then(() => renderHoursDistribution());
+	});
+
+	// Re-render only the user hours distribution chart when its mode changes
+	// or when the per-event-scoped data finishes loading.
+	$effect(() => {
+		userHoursDistMode;
+		userHoursDist;
+		if (userHoursDist) tick().then(() => renderUserHoursDistribution());
+	});
+
+	// Re-render only the qualification funnel chart when its mode toggles.
+	$effect(() => {
+		canBuyTicketMode;
+		if (stats) tick().then(() => renderSignupQualificationChart());
+	});
+
+	// Fetch the event-scoped user-hours distribution when the selector changes.
+	// 'all' uses the unscoped bundle from reviewStats — no extra call needed.
+	$effect(() => {
+		const slug = selectedUserHoursEvent;
+		if (!reviewStats) return;
+		if (slug === 'all') {
+			userHoursDist = reviewStats.userHoursDistribution;
+			return;
+		}
+		userHoursLoading = true;
+		api
+			.GET('/api/reviewer/stats/user-hours-distribution', {
+				params: { query: { event: slug } },
+			})
+			.then(({ data }) => {
+				// Guard against stale responses if the user has already changed
+				// the selection again before this resolves.
+				if (selectedUserHoursEvent === slug) {
+					userHoursDist = data ?? null;
+				}
+			})
+			.finally(() => {
+				if (selectedUserHoursEvent === slug) userHoursLoading = false;
+			});
 	});
 
 	// Re-render the map when the event filter changes (cheap — only the map).
@@ -1071,6 +1246,13 @@
 						<p class="text-[10px] text-ds-text-secondary text-center mt-1">No historical data yet</p>
 					{/if}
 				</div>
+				<div class="rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)] mb-3">
+					<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary mb-2">Daily Submissions Logged (30d)</p>
+					<div bind:this={dailySubmissionsEl} style="height: 200px;"></div>
+					{#if stats.historical.dailySubmissionsLogged.length === 0}
+						<p class="text-[10px] text-ds-text-secondary text-center mt-1">No historical data yet</p>
+					{/if}
+				</div>
 				{#if stats.dau.perEvent.length > 0}
 					<div class="mb-2 flex items-center justify-between gap-2">
 						<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">DAU by Event</p>
@@ -1180,6 +1362,14 @@
 					<div class="rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)] mt-3">
 						<div class="mb-2 flex items-center justify-between gap-2">
 							<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">Qualification Funnel by Event</p>
+							<select
+								bind:value={canBuyTicketMode}
+								title="Hour basis for the 'Can Buy Ticket' gate"
+								class="rounded-md border border-ds-border bg-ds-surface px-2 py-1 text-xs text-ds-text"
+							>
+								<option value="approved">Approved hours only</option>
+								<option value="approvedPlusPending">Approved + pending hours</option>
+							</select>
 						</div>
 						<div
 							bind:this={signupQualificationEl}
@@ -1295,6 +1485,40 @@
 							</select>
 						</div>
 						<div bind:this={hoursDistributionEl} style="height: 220px;"></div>
+					</div>
+
+					<div class="rounded-lg border border-ds-border bg-ds-surface p-4 shadow-[var(--color-ds-shadow)] mt-3">
+						<div class="mb-2 flex items-center justify-between gap-2">
+							<p class="text-[11px] font-semibold uppercase tracking-wide text-ds-text-secondary">
+								User distribution by hours
+								{#if userHoursLoading}
+									<span class="ml-1 text-ds-text-secondary">(loading…)</span>
+								{/if}
+							</p>
+							<div class="flex items-center gap-2">
+								{#if funnelEventOptions.length > 0}
+									<select
+										bind:value={selectedUserHoursEvent}
+										class="rounded-md border border-ds-border bg-ds-surface px-2 py-1 text-xs text-ds-text"
+									>
+										<option value="all">All events</option>
+										{#each funnelEventOptions as event}
+											<option value={event.slug}>{event.title}</option>
+										{/each}
+									</select>
+								{/if}
+								<select
+									bind:value={userHoursDistMode}
+									class="rounded-md border border-ds-border bg-ds-surface px-2 py-1 text-xs text-ds-text"
+								>
+									<option value="tracked">Tracked hours</option>
+									<option value="submitted">Submitted hours</option>
+									<option value="submittedExcludingRejected">Submitted (excl. rejected)</option>
+									<option value="approved">Approved hours</option>
+								</select>
+							</div>
+						</div>
+						<div bind:this={userHoursDistributionEl} style="height: 220px;"></div>
 					</div>
 				{:else}
 					<div class="rounded-lg border border-ds-border bg-ds-surface p-6 text-center text-ds-text-secondary text-sm">

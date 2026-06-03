@@ -1221,6 +1221,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviewer/stats/user-hours-distribution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ReviewerController_getUserHoursDistribution"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviewer/past-reviews": {
         parameters: {
             query?: never;
@@ -2920,7 +2936,10 @@ export interface components {
             slug: string;
             signedUp: number;
             engaged: number;
+            engagedTracked: number;
             canBuyTicket: number;
+            canBuyTicketWithPending: number;
+            couldBuyTicket: number;
             boughtTicket: number;
         };
         StatsSignupRoute: {
@@ -2954,6 +2973,7 @@ export interface components {
             dau: components["schemas"]["HistoricalDataPoint"][];
             newSignups: components["schemas"]["HistoricalDataPoint"][];
             submissionsCreated: components["schemas"]["HistoricalDataPoint"][];
+            dailySubmissionsLogged: components["schemas"]["HistoricalDataPoint"][];
             reviewsCompleted: components["schemas"]["HistoricalDataPoint"][];
             medianReviewTimeHours: components["schemas"]["HistoricalDataPoint"][];
             dailyHoursLogged: components["schemas"]["HistoricalDataPoint"][];
@@ -3285,6 +3305,12 @@ export interface components {
             shipped: components["schemas"]["HoursDistributionEntry"][];
             approved: components["schemas"]["HoursDistributionEntry"][];
         };
+        UserHoursDistributionResponse: {
+            tracked: components["schemas"]["HoursDistributionEntry"][];
+            submitted: components["schemas"]["HoursDistributionEntry"][];
+            submittedExcludingRejected: components["schemas"]["HoursDistributionEntry"][];
+            approved: components["schemas"]["HoursDistributionEntry"][];
+        };
         ReviewTimings: {
             medianReviewTimeThisWeek: number | null;
             medianFraudCheckTimeThisWeek: number | null;
@@ -3327,6 +3353,7 @@ export interface components {
             general: components["schemas"]["GeneralStats"];
             hours: components["schemas"]["HoursStats"];
             hoursDistribution: components["schemas"]["HoursDistribution"];
+            userHoursDistribution: components["schemas"]["UserHoursDistributionResponse"];
             reviewStats: components["schemas"]["ReviewTimings"];
             reviewProjects: components["schemas"]["ReviewProjects"];
             historical: components["schemas"]["ReviewHistorical"];
@@ -4036,7 +4063,7 @@ export interface components {
             isActive: boolean;
         };
         EventHourTotals: {
-            /** @description Sum of approved_hours from the latest approved submission per fraud-passed project, across pinned users */
+            /** @description Sum of approved_hours for fraud-passed projects whose latest submission is approved, across pinned users */
             approvedHours: number;
             /** @description Sum of now_hackatime_hours for projects whose latest submission is still pending review */
             hoursInReview: number;
@@ -5785,6 +5812,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewStatsResponse"];
+                };
+            };
+        };
+    };
+    ReviewerController_getUserHoursDistribution: {
+        parameters: {
+            query: {
+                event: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserHoursDistributionResponse"];
                 };
             };
         };

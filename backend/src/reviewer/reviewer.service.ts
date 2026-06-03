@@ -968,14 +968,21 @@ export class ReviewerService {
     const thirtyDaysWindow = new Date(dayStart);
     thirtyDaysWindow.setDate(thirtyDaysWindow.getDate() - 30);
 
-    const [hours, timings, projects, historical, hoursDistribution] =
-      await Promise.all([
-        this.metricsService.computeReviewHours(),
-        this.metricsService.computeReviewTimings(),
-        this.metricsService.computeReviewProjects(),
-        this.metricsService.computeHistorical(thirtyDaysWindow),
-        this.metricsService.computeProjectHoursDistribution(),
-      ]);
+    const [
+      hours,
+      timings,
+      projects,
+      historical,
+      hoursDistribution,
+      userHoursDistribution,
+    ] = await Promise.all([
+      this.metricsService.computeReviewHours(),
+      this.metricsService.computeReviewTimings(),
+      this.metricsService.computeReviewProjects(),
+      this.metricsService.computeHistorical(thirtyDaysWindow),
+      this.metricsService.computeProjectHoursDistribution(),
+      this.metricsService.computeUserHoursDistribution(),
+    ]);
 
     return {
       leaderboard: {
@@ -992,6 +999,7 @@ export class ReviewerService {
       },
       hours,
       hoursDistribution,
+      userHoursDistribution,
       reviewStats: timings,
       reviewProjects: projects,
       historical: {
@@ -1002,6 +1010,17 @@ export class ReviewerService {
         medianFraudCheckTimeHours: historical.medianFraudCheckTimeHours,
       },
     };
+  }
+
+  /**
+   * User-hours distribution scoped to an event (by pinned-event slug).
+   * Pass an empty/undefined slug to count all users — same shape as the
+   * field bundled into `getReviewStats`.
+   */
+  async getUserHoursDistribution(eventSlug?: string) {
+    return this.metricsService.computeUserHoursDistribution({
+      eventSlug: eventSlug && eventSlug !== 'all' ? eventSlug : undefined,
+    });
   }
 
   /**
@@ -1423,9 +1442,20 @@ export class ReviewerService {
             submission.project.repoUrl,
           );
           if (manifest) {
-            const others = manifest.submissions.filter(
-              (s) => (s.yswsName ?? '').toLowerCase() !== 'horizons',
+            // Mirrors ManifestLookup.svelte: drop our own YSWS and any
+            // pre-Horizons rows. Only `createdAt` is trustworthy per-row;
+            // shippedAt/approvedAt leak between submissions on the same
+            // project so we can't use them for the cutoff.
+            const horizonsStartMs = Date.parse(
+              process.env.HACKATIME_CUTOFF_DATE || '2026-02-21T00:00:00Z',
             );
+            const others = manifest.submissions.filter((s) => {
+              if ((s.yswsName ?? '').toLowerCase() === 'horizons') return false;
+              const created = Date.parse(s.createdAt);
+              if (Number.isFinite(created) && created < horizonsStartMs)
+                return false;
+              return true;
+            });
             crossSubmittedYswsNames = [
               ...new Set(
                 others

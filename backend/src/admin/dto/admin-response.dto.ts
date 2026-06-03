@@ -944,7 +944,16 @@ class StatsSignupQualificationEntry {
   engaged: number;
 
   @ApiProperty()
+  engagedTracked: number;
+
+  @ApiProperty()
   canBuyTicket: number;
+
+  @ApiProperty()
+  canBuyTicketWithPending: number;
+
+  @ApiProperty()
+  couldBuyTicket: number;
 
   @ApiProperty()
   boughtTicket: number;
@@ -1006,6 +1015,9 @@ class StatsHistorical {
 
   @ApiProperty({ type: [HistoricalDataPoint] })
   submissionsCreated: HistoricalDataPoint[];
+
+  @ApiProperty({ type: [HistoricalDataPoint] })
+  dailySubmissionsLogged: HistoricalDataPoint[];
 
   @ApiProperty({ type: [HistoricalDataPoint] })
   reviewsCompleted: HistoricalDataPoint[];
