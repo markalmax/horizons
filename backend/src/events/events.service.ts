@@ -277,12 +277,29 @@ export class EventsService {
       }
     }
 
-    // Calculate the net ticket cost after applying event hours credit
-    const eventHoursCredit = await this.getEventHoursCredit(
-      userId,
-      event.slug,
+    // Sum up all event hours credits for this specific event and reduce the ticket cost
+    const eventHoursCredits = await this.prisma.transaction.findMany({
+      where: {
+        userId,
+        eventId: event.eventId,
+        eventHoursCredit: { not: null },
+        refundedAt: null,
+      },
+      select: { eventHoursCredit: true },
+    });
+    const totalEventHoursCredit = eventHoursCredits.reduce(
+      (sum, txn) => sum + (txn.eventHoursCredit ?? 0),
+      0,
     );
-    const netTicketCost = Math.max(0, event.ticketCost! - eventHoursCredit);
+    const netTicketCost = Math.max(0, event.ticketCost! - totalEventHoursCredit);
+
+    // Verify the user has sufficient balance to pay for the ticket
+    const { balance } = await this.balanceService.getUserBalance(userId);
+    if (balance < netTicketCost) {
+      throw new BadRequestException(
+        `Insufficient balance. You need ${netTicketCost} hours to buy a ticket, but you have ${Math.round(balance * 10) / 10} hours.`,
+      );
+    }
 
     let transaction;
     try {

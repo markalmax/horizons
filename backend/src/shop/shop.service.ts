@@ -340,6 +340,7 @@ export class ShopService {
     }
 
     let eventHoursCredit: number | null = null;
+    let linkedEventId: number | null = null;
     if (item.eventHoursReduction != null && item.eventHoursReduction > 0) {
       const linkedEvent = await this.prisma.event.findUnique({
         where: { slug: item.shop.slug },
@@ -347,6 +348,7 @@ export class ShopService {
       });
       if (linkedEvent) {
         eventHoursCredit = item.eventHoursReduction;
+        linkedEventId = linkedEvent.eventId;
       }
     }
 
@@ -361,7 +363,7 @@ export class ShopService {
       itemDescription: description,
       itemId,
       variantId: variant?.variantId ?? null,
-      eventHoursCredit,
+      eventId: linkedEventId,
       preCheck: async (tx) => {
         if (maxPerUser !== null && maxPerUser > 0) {
           const count = await tx.transaction.count({
